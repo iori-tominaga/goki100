@@ -88,8 +88,15 @@ function loop(now) {
     const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw); // 画面奥（カメラの向き）
     const rgtX = Math.cos(yaw),  rgtZ = -Math.sin(yaw); // 画面右
     const f = -iv.z, r = iv.x;
-    const world = { x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r };
-    state.update(world, dt);
+
+    // 地上は world ベクトルで動くが、よじ登り中は「画面の前後＝昇降」を使う。
+    // 面の向きから昇降を決めると、回り込むたびに操作の意味が変わってしまうため。
+    const move = {
+      x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r, // world 基準（地上用）
+      fwd: f, right: r,                               // 画面基準（登り用）
+      rightX: rgtX, rightZ: rgtZ,                     // カメラ右ベクトル（左右の向き合わせ）
+    };
+    state.update(move, dt);
     renderer.sync(state, dt);
     state.events.length = 0; // 描画へ渡し終えた出来事は毎フレーム捨てる
     updateHud();

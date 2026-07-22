@@ -139,6 +139,7 @@ export class GameState {
     this.roaches = [{
       id: nextId++, x: 0, y: 0, z: 0, angle: 0, variant: pickVariant(), isPlayer: true,
       mode: 'ground', vy: 0, climbRef: null, climbAngle: 0, climbY: 0, climbNormalAngle: 0,
+      climbCooldown: 0,
       dying: 0, stuck: null,
     }];
     // 操作中の個体は id で覚える（死んだら仲間へ乗り移るため、配列の先頭固定にはできない）
@@ -205,6 +206,7 @@ export class GameState {
     const roach = {
       id: nextId++, x, y: 0, z, angle: 0, variant, preview, isPlayer: false,
       mode: 'ground', vy: 0, climbRef: null, climbAngle: 0, climbY: 0, climbNormalAngle: 0,
+      climbCooldown: 0,
       dying: 0, stuck: null,
     };
     this.roaches.push(roach);
@@ -549,7 +551,8 @@ export class GameState {
   // --- 地上モード：移動・オートステップ・立ち・重力・登り開始 ---
   _updateGround(p, worldVec, dt) {
     const rr = CONFIG.roach.radius;
-    const { stepHeight, gravity, snapUp } = CONFIG.physics;
+    const { stepHeight, gravity, snapUp, grabDot, grabCooldown } = CONFIG.physics;
+    if (p.climbCooldown > 0) p.climbCooldown -= dt;
     const len = Math.hypot(worldVec.x, worldVec.z);
     let nx = 0, nz = 0;
     if (len > 0.001) { nx = worldVec.x / len; nz = worldVec.z / len; p.angle = Math.atan2(nx, nz); }
@@ -565,14 +568,23 @@ export class GameState {
       if (d < minD) {
         const stepUp = o.top - p.y;
         if (stepUp <= stepHeight) continue;          // 低い→歩いて乗る（A）
-        if (o.climbable && len > 0.001) { this._startClimb(p, o); return; } // 高い→よじ登る（C）
-        if (d > 1e-4) { newX = o.x + (dx / d) * minD; newZ = o.z + (dz / d) * minD; } // 登れない→ブロック
+
+        // 高い→よじ登る（C）。ただし「その障害物へ向かって進んでいる」時だけ掴む。
+        // 向きを見ずに掴むと、降りた直後（判定円の内側に居る）に再取り付きして
+        // 二度と抜け出せなくなる。離れる向きの入力は必ず素通りさせること。
+        if (o.climbable && len > 0.001 && p.climbCooldown <= 0) {
+          const toX = o.x - p.x, toZ = o.z - p.z;
+          const toLen = Math.hypot(toX, toZ) || 1;
+          const facing = (nx * toX + nz * toZ) / toLen;
+          if (facing > grabDot) { this._startClimb(p, o); return; }
+        }
+        if (d > 1e-4) { newX = o.x + (dx / d) * minD; newZ = o.z + (dz / d) * minD; } // 掴まない→ブロック
       }
     }
 
-    // 壁：押し込んだら登る
+    // 壁：押し込んだら登る（降りた直後は掴み直さない）
     const bound = CONFIG.house.halfSize - rr;
-    if (len > 0.001) {
+    if (len > 0.001 && p.climbCooldown <= 0) {
       const wall = this._wallAt(newX, newZ, bound);
       if (wall) { this._startWallClimb(p, wall); return; }
     }
@@ -625,19 +637,24 @@ export class GameState {
     return over.length ? over[0].wall : null;
   }
 
-  // --- 登りモード：面を上下（押し込み/引き）＋左右（周回/横）に移動 ---
-  _updateClimb(p, worldVec, dt) {
+  // --- 登りモード：画面基準で「上へ倒す＝登る／下へ倒す＝降りる」 ---
+  //
+  // 面の法線から上下を決める方式はやめた。物の周りを回り込むと法線が回転し、
+  // 同じ入力の意味が変わってしまうため（＝操作がぐちゃぐちゃになる原因）。
+  // 画面の前後入力をそのまま昇降に対応させれば、どこに張り付いていても意味は不変。
+  _updateClimb(p, v, dt) {
     const o = p.climbRef;
-    if (o.wall) { this._updateWallClimb(p, worldVec, dt); return; }
+    if (o.wall) { this._updateWallClimb(p, v, dt); return; }
 
     const rr = CONFIG.roach.radius;
     const cs = CONFIG.roach.climbSpeed;
-    const nx = Math.cos(p.climbAngle), nz = Math.sin(p.climbAngle); // 外向き法線
-    const into = -(worldVec.x * nx + worldVec.z * nz);              // 壁へ押す→登る
-    const tang = worldVec.x * -nz + worldVec.z * nx;               // 面に沿って横移動
 
-    p.climbY += into * cs * dt;
-    p.climbAngle += (tang * cs / Math.max(1, o.radius)) * dt;
+    // 左右：カメラの右方向に近い側へ回る＝「右に倒せば画面の右へ動く」
+    const tX = -Math.sin(p.climbAngle), tZ = Math.cos(p.climbAngle); // 反時計回りの接線
+    const side = (tX * v.rightX + tZ * v.rightZ) >= 0 ? 1 : -1;
+
+    p.climbY += v.fwd * cs * dt;
+    p.climbAngle += side * v.right * (cs / Math.max(1, o.radius)) * dt;
     p.climbY = Math.max(0, Math.min(o.top, p.climbY));
 
     p.x = o.x + Math.cos(p.climbAngle) * (o.radius + rr * 0.4);
@@ -652,31 +669,46 @@ export class GameState {
       const inR = Math.max(0, o.radius - rr);
       p.x = o.x + Math.cos(p.climbAngle) * inR;
       p.z = o.z + Math.sin(p.climbAngle) * inR;
+      p.climbCooldown = CONFIG.physics.grabCooldown;
     } else if (p.climbY <= 0.02) {
+      // 地面 → 判定円の外まで押し出してから離す（内側で離すと即再取り付きする）
       p.mode = 'ground'; p.y = 0; p.vy = 0;
+      p.x = o.x + Math.cos(p.climbAngle) * (o.radius + rr + 0.05);
+      p.z = o.z + Math.sin(p.climbAngle) * (o.radius + rr + 0.05);
+      p.climbCooldown = CONFIG.physics.grabCooldown;
     }
   }
 
-  _updateWallClimb(p, worldVec, dt) {
+  _updateWallClimb(p, v, dt) {
     const w = p.climbRef;
     const rr = CONFIG.roach.radius;
     const cs = CONFIG.roach.climbSpeed;
     const bound = CONFIG.house.halfSize - rr;
-    const nx = Math.cos(w.normalAngle), nz = Math.sin(w.normalAngle); // 外向き（部屋側）
-    const into = -(worldVec.x * nx + worldVec.z * nz);
-    const tang = worldVec.x * -nz + worldVec.z * nx;
 
-    p.climbY = Math.max(0, Math.min(w.top, p.climbY + into * cs * dt));
+    // 壁に沿った接線（部屋の内側から見て左右）をカメラの右向きに合わせる
+    const nx = Math.cos(w.normalAngle), nz = Math.sin(w.normalAngle);
+    const tX = -nz, tZ = nx;
+    const side = (tX * v.rightX + tZ * v.rightZ) >= 0 ? 1 : -1;
+    const slide = side * v.right * cs * dt; // 接線方向への移動量
+
+    p.climbY = Math.max(0, Math.min(w.top, p.climbY + v.fwd * cs * dt));
+    // 壁は軸に平行なので、接線成分はどちらか一方の軸にしか出ない
     if (w.axis === 'x') {
       p.x = w.sign * bound;
-      p.z = Math.max(-bound, Math.min(bound, p.z + tang * cs * dt));
+      p.z = Math.max(-bound, Math.min(bound, p.z + tZ * slide));
     } else {
       p.z = w.sign * bound;
-      p.x = Math.max(-bound, Math.min(bound, p.x + tang * cs * dt));
+      p.x = Math.max(-bound, Math.min(bound, p.x + tX * slide));
     }
     p.y = p.climbY;
     p.climbNormalAngle = w.normalAngle;
 
-    if (p.climbY <= 0.02) { p.mode = 'ground'; p.y = 0; p.vy = 0; }
+    if (p.climbY <= 0.02) {
+      // 壁から離れて着地（壁の内側へ少し押し出す）
+      p.mode = 'ground'; p.y = 0; p.vy = 0;
+      p.x = Math.max(-bound + 0.05, Math.min(bound - 0.05, p.x + nx * 0.3));
+      p.z = Math.max(-bound + 0.05, Math.min(bound - 0.05, p.z + nz * 0.3));
+      p.climbCooldown = CONFIG.physics.grabCooldown;
+    }
   }
 }
