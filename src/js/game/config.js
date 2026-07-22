@@ -5,11 +5,14 @@ export const CONFIG = {
   // ゴール
   targetCount: 100,
 
-  // 家（プレイエリア）の広さ。中心を原点(0,0)とした一辺の半分。
-  // ゴキは小さく、家具は特大なので家自体もそれなりに広く取る。
+  // 家（プレイエリア）。間取り図に合わせた横長のワンルーム。
+  // 中心が原点。x は -width/2〜+width/2、z は -depth/2〜+depth/2。
+  // 縮尺の目安：1ユニット ≒ 11cm（部屋 約7m×4.6m）。
   house: {
-    halfSize: 24,     // -24〜+24 の正方形フロア
-    wallHeight: 8,
+    width: 64,
+    depth: 42,
+    wallHeight: 22,
+    wallThickness: 1.4,
   },
 
   // ゴキブリ本体
@@ -99,8 +102,8 @@ export const CONFIG = {
 
 // 塊魂リスペクトの原色ポップなパレット（16進）
 export const PALETTE = {
-  floor:     0xf6d365, // 明るい黄土のフロア
-  floorGrid: 0xffe9a8,
+  floor:     0xe3b482, // 明るいフローリング（間取り図の無垢材に寄せた）
+  floorGrid: 0xc59356, // 板の継ぎ目
   wall:      0xffb3c6, // ポップなピンク壁
   sky:       0xa0e7ff, // 陽気な水色の背景
   roachBody: 0x8b5a2b, // ゴキ着ぐるみ（茶）
@@ -132,6 +135,68 @@ export const ITEMS = {
   // 階段用（weight 0＝ランダム抽選されない。generateStairs が使う木の段）
   step:      { shape: 'box',      w: 5.0, h: 1.0, d: 3.0, weight: 0, color: 0xb8865b, accent: 0x8a5a2b, label: '' },
 };
+
+// ===== 間取り =====
+// 実際の間取り図（ワンルームLDK）を測って world 座標に落としたもの。
+// すべて矩形（必要なら rotY で回転）。x,z = 中心、w = X幅、d = Z奥行、h = 高さ。
+// style は描画側がメッシュを作り分けるためのヒント。ロジックは形を知らない。
+//
+//   キッチン ── 玄関 ── クローゼット
+//   ダイニング ─ リビング ─ ワークスペース
+//   ────────  ベランダ  ────────
+export const FURNITURE = [
+  // --- キッチン（左上）---
+  { kind: 'fridge',   style: 'cabinet', x: -27.0, z: -14.1, w: 9.6,  d: 9.9,  h: 16, color: 0xe8e8e8, accent: 0xb0b0b0 },
+  { kind: 'counter',  style: 'counter', x: -13.3, z: -15.1, w: 13.5, d: 4.6,  h: 8,  color: 0xf2f2f2, accent: 0xc8ccd0 },
+  { kind: 'microwave',style: 'box',     x: -17.4, z: -14.9, w: 4.8,  d: 3.7,  h: 12, color: 0xfafafa, accent: 0x444444 },
+  { kind: 'trash',    style: 'bin',     x: -21.8, z: -10.8, w: 2.9,  d: 3.6,  h: 5,  color: 0xd9c9a8, accent: 0x8a5a2b },
+
+  // --- ダイニング（左）---
+  { kind: 'table',    style: 'table',   x: -22.6, z: 2.4,   w: 9.3,  d: 8.7,  h: 6.5, color: 0xc89a5e, accent: 0x8a5a2b },
+  { kind: 'chair',    style: 'chair',   x: -24.5, z: -3.5,  w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b },
+  { kind: 'chair',    style: 'chair',   x: -20.3, z: -3.5,  w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b },
+  { kind: 'chair',    style: 'chair',   x: -24.8, z: 6.3,   w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b, rotY: Math.PI },
+  { kind: 'chair',    style: 'chair',   x: -20.3, z: 6.3,   w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b, rotY: Math.PI },
+  { kind: 'curtain',  style: 'curtain', x: -29.1, z: 3.8,   w: 2.0,  d: 17.4, h: 16, color: 0xe6ded0, accent: 0xb8ac98 },
+  { kind: 'sidebox',  style: 'box',     x: -25.8, z: 13.8,  w: 3.8,  d: 4.2,  h: 5,  color: 0xc9a06a, accent: 0x6b4423 },
+
+  // --- リビング（中央）---
+  { kind: 'sofa',     style: 'sofa',    x: -6.4,  z: 0.5,   w: 12.8, d: 5.0,  h: 7,  color: 0xbfa76a, accent: 0x9c8850 },
+  { kind: 'lowtable', style: 'table',   x: -5.4,  z: 6.9,   w: 6.2,  d: 3.6,  h: 3.5, color: 0xd0a878, accent: 0x8a5a2b },
+  { kind: 'tvstand',  style: 'tv',      x: -3.8,  z: 13.4,  w: 10.2, d: 2.6,  h: 4,  color: 0x2b2b2b, accent: 0x111111 },
+  { kind: 'plant',    style: 'plant',   x: 3.9,   z: 16.0,  w: 3.2,  d: 3.4,  h: 6,  color: 0xdcdcdc, accent: 0x3ba55d },
+
+  // --- 玄関・クローゼット（右上）---
+  { kind: 'closet',   style: 'cabinet', x: 17.3,  z: -14.0, w: 16.9, d: 10.1, h: 18, color: 0xd8d4cc, accent: 0x9a938a },
+  { kind: 'shoebox',  style: 'box',     x: 3.7,   z: -8.7,  w: 4.5,  d: 2.7,  h: 4,  color: 0xcfc4b0, accent: 0x8a7f6a },
+
+  // --- ワークスペース（右）---
+  { kind: 'rack',     style: 'rack',    x: 16.2,  z: -2.0,  w: 20.4, d: 2.0,  h: 9,  color: 0xcccccc, accent: 0x8a8a8a },
+  { kind: 'chest',    style: 'box',     x: 10.5,  z: 0.8,   w: 9.2,  d: 3.7,  h: 6,  color: 0xc08a52, accent: 0x7a5230 },
+  { kind: 'desk',     style: 'table',   x: 19.9,  z: 8.0,   w: 6.0,  d: 13.4, h: 7,  color: 0xc08a52, accent: 0x7a5230 },
+  { kind: 'chair',    style: 'chair',   x: 14.1,  z: 6.4,   w: 4.8,  d: 4.6,  h: 5,  color: 0xb07840, accent: 0x6b4423, rotY: Math.PI / 2 },
+  { kind: 'chair',    style: 'chair',   x: 14.1,  z: 11.9,  w: 4.8,  d: 4.6,  h: 5,  color: 0xb07840, accent: 0x6b4423, rotY: Math.PI / 2 },
+];
+
+// 室内の仕切り壁（外周壁は house の寸法から自動生成）。
+export const PARTITIONS = [
+  // 玄関とリビングを仕切る壁
+  { x: 0.7, z: -14.1, w: 1.3, d: 12.9 },
+];
+
+// ベランダとの段差（低いので歩いて越えられる＝サッシの敷居）
+export const SILLS = [
+  { x: -11.0, z: 14.6, w: 32.0, d: 1.2, h: 1.6 },
+];
+
+// 床の色分け（当たり判定なし・見た目だけ）。shape は 'rect' か 'circle'。
+export const FLOOR_ZONES = [
+  { shape: 'rect',   x: -16.0, z: -14.5, w: 32.0, d: 13.0, color: 0xe9e4da, name: 'キッチン' },
+  { shape: 'rect',   x: 4.5,   z: -14.5, w: 9.0,  d: 13.0, color: 0xd8d2c4, name: '玄関' },
+  { shape: 'rect',   x: -11.0, z: 18.0,  w: 32.0, d: 6.0,  color: 0xbdbdbd, name: 'ベランダ' },
+  { shape: 'rect',   x: -6.4,  z: 7.5,   w: 13.2, d: 9.3,  color: 0xd9c9a0, name: 'リビングのラグ' },
+  { shape: 'circle', x: 13.7,  z: 9.2,   w: 13.0, d: 13.0, color: 0xa8c86a, name: 'デスクの丸ラグ' },
+];
 
 // 餌（食べ残し）の種類。value = 1個あたりのゲージ量、weight = 出現の重み。
 // shape は描画側がメッシュを作り分けるためのヒント（ロジックは形を知らなくてよい）。

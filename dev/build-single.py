@@ -42,7 +42,9 @@ ORDER = [
     "js/main.js",
 ]
 
-IMPORT_LINE = re.compile(r"^\s*import\s.*?;\s*$", re.MULTILINE)
+# import 文は複数行にまたがることがある（{ A, B,\n  C } from '...' 形式）。
+# [\s\S] で改行も含めて最初の ; まで拾う。
+IMPORT_LINE = re.compile(r"^\s*import\s[\s\S]*?;\s*$", re.MULTILINE)
 EXPORT_KEYWORD = re.compile(r"^export\s+", re.MULTILINE)
 
 

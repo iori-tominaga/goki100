@@ -3,7 +3,9 @@
 
 import * as THREE from 'three';
 import { Renderer } from './Renderer.js';
-import { CONFIG, PALETTE, VARIANTS, ITEMS, GIANTS, FOODS } from '../game/config.js';
+import {
+  CONFIG, PALETTE, VARIANTS, ITEMS, GIANTS, FOODS, FLOOR_ZONES,
+} from '../game/config.js';
 import { makeItemMaterials } from './textures.js';
 
 // 顔タイプごとの人間パーツ＋触角を組み付けた「頭アセンブリ」を返す。
@@ -476,6 +478,134 @@ function createCatMesh() {
   return g;
 }
 
+// 家具1つ分のメッシュ。style ごとに作り分ける。
+// 原点は「床に置いた時の中心・底面」＝ y=0 が床。
+function createFurnitureMesh(f) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.85 });
+  const accent = new THREE.MeshStandardMaterial({ color: f.accent, roughness: 0.8 });
+  const hw = f.w / 2, hd = f.d / 2;
+
+  const block = (w, h, d, x, y, z, m = mat) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+
+  switch (f.style) {
+    case 'table': {
+      // 天板＋4本脚（脚の間はゴキが通り抜けられそうに見えるのが狙い）
+      const topH = f.h * 0.12;
+      block(f.w, topH, f.d, 0, f.h - topH / 2, 0);
+      const legW = Math.min(f.w, f.d) * 0.12;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        block(legW, f.h - topH, legW, sx * (hw - legW), (f.h - topH) / 2, sz * (hd - legW), accent);
+      }
+      break;
+    }
+    case 'chair': {
+      const seatH = f.h * 0.55;
+      block(f.w, f.h * 0.12, f.d, 0, seatH, 0);              // 座面
+      block(f.w, f.h * 0.75, f.d * 0.14, 0, seatH + f.h * 0.38, -hd + f.d * 0.07, accent); // 背もたれ
+      const legW = Math.min(f.w, f.d) * 0.14;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        block(legW, seatH, legW, sx * (hw - legW), seatH / 2, sz * (hd - legW), accent);
+      }
+      break;
+    }
+    case 'sofa': {
+      block(f.w, f.h * 0.5, f.d, 0, f.h * 0.25, 0);                       // 座面
+      block(f.w, f.h * 0.55, f.d * 0.3, 0, f.h * 0.72, -hd + f.d * 0.15, accent); // 背もたれ
+      for (const sx of [-1, 1]) {                                          // 肘掛け
+        block(f.w * 0.08, f.h * 0.28, f.d, sx * (hw - f.w * 0.04), f.h * 0.62, 0, accent);
+      }
+      break;
+    }
+    case 'counter': {
+      block(f.w, f.h, f.d, 0, f.h / 2, 0);
+      block(f.w * 0.98, f.h * 0.06, f.d * 0.98, 0, f.h, 0, accent);        // 天板の縁
+      const sink = new THREE.Mesh(new THREE.CylinderGeometry(f.d * 0.3, f.d * 0.3, f.h * 0.1, 16), accent);
+      sink.position.set(f.w * 0.22, f.h + 0.05, 0);                        // シンク
+      g.add(sink);
+      break;
+    }
+    case 'cabinet': {
+      block(f.w, f.h, f.d, 0, f.h / 2, 0);
+      // 扉の合わせ目
+      block(f.w * 0.03, f.h * 0.9, f.d * 0.02, 0, f.h / 2, hd, accent);
+      for (const sx of [-1, 1]) {
+        block(f.w * 0.06, f.h * 0.02, f.d * 0.04, sx * f.w * 0.12, f.h * 0.55, hd, accent); // 取っ手
+      }
+      break;
+    }
+    case 'tv': {
+      block(f.w, f.h, f.d, 0, f.h / 2, 0);                                 // テレビ台
+      const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(f.w * 0.8, f.h * 2.2, f.d * 0.25),
+        new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.25 })
+      );
+      screen.position.set(0, f.h + f.h * 1.1, -hd * 0.2);
+      screen.castShadow = true;
+      g.add(screen);
+      break;
+    }
+    case 'rack': {
+      // ハンガーラック：支柱2本＋横バー＋ぶら下がった服
+      const postW = 0.6;
+      for (const sx of [-1, 1]) block(postW, f.h, postW, sx * (hw - postW), f.h / 2, 0, accent);
+      block(f.w, 0.5, 0.5, 0, f.h - 0.4, 0, accent);
+      for (let i = 0; i < 6; i++) {
+        const cloth = block(f.w * 0.1, f.h * 0.45, f.d * 0.8, -hw + f.w * (0.12 + i * 0.15), f.h * 0.5, 0);
+        cloth.material = new THREE.MeshStandardMaterial({
+          color: [0x4a6fa5, 0xd94f3a, 0xf0f0f0, 0x3ba55d, 0xffd93d, 0x6c5ce7][i], roughness: 0.9,
+        });
+      }
+      break;
+    }
+    case 'curtain': {
+      // 波打つカーテン（薄い板を並べる）
+      const n = 8;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1) - 0.5;
+        const panel = block(f.w * 0.7, f.h, f.d / n * 0.9, Math.sin(i * 1.7) * f.w * 0.15, f.h / 2, t * f.d);
+        panel.material = i % 2 ? accent : mat;
+      }
+      break;
+    }
+    case 'bin': {
+      const bin = new THREE.Mesh(new THREE.CylinderGeometry(f.w * 0.5, f.w * 0.4, f.h, 12), mat);
+      bin.position.y = f.h / 2;
+      bin.castShadow = true;
+      g.add(bin);
+      block(f.w * 1.05, f.h * 0.08, f.d * 1.05, 0, f.h, 0, accent); // フタの縁
+      break;
+    }
+    case 'plant': {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(f.w * 0.4, f.w * 0.3, f.h * 0.35, 10), mat);
+      pot.position.y = f.h * 0.175;
+      pot.castShadow = true;
+      g.add(pot);
+      for (let i = 0; i < 5; i++) {
+        const leaf = new THREE.Mesh(new THREE.ConeGeometry(f.w * 0.22, f.h * 0.7, 5), accent);
+        leaf.position.set(Math.cos(i * 1.3) * f.w * 0.2, f.h * 0.6, Math.sin(i * 1.3) * f.w * 0.2);
+        leaf.rotation.z = Math.cos(i * 1.3) * 0.35;
+        leaf.rotation.x = -Math.sin(i * 1.3) * 0.35;
+        leaf.castShadow = true;
+        g.add(leaf);
+      }
+      break;
+    }
+    default:
+      block(f.w, f.h, f.d, 0, f.h / 2, 0);
+      block(f.w * 1.01, f.h * 0.08, f.d * 1.01, 0, f.h * 0.75, 0, accent);
+      break;
+  }
+  return g;
+}
+
 export class ThreeRenderer extends Renderer {
   init(container, state) {
     this.width = container.clientWidth;
@@ -507,7 +637,8 @@ export class ThreeRenderer extends Renderer {
     this._setupCameraControls();
 
     this._buildLights();
-    this._buildHouse();
+    this._buildHouse(state);
+    this._buildFurniture(state);
     this._buildGiants(state);
     this._buildProps(state);
     this._buildHazards(state);
@@ -595,6 +726,19 @@ export class ThreeRenderer extends Renderer {
       t.z + distance * cp * Math.cos(yaw)
     );
     this.camera.lookAt(t);
+    this._cullNearWalls();
+  }
+
+  // カメラが部屋の外へ回り込んだら、その壁を消す（ドールハウス方式）。
+  // 壁で視界が塞がると何も見えなくなるため、手前だけ抜く。
+  _cullNearWalls() {
+    if (!this.wallMeshes) return;
+    const c = this.camera.position;
+    for (const w of this.wallMeshes) {
+      // 壁から見てカメラが内側にあるか（内向き法線との内積が正なら室内側）
+      const inside = (c.x - w.x) * w.nx + (c.z - w.z) * w.nz > 0;
+      w.mesh.visible = inside;
+    }
   }
 
   _buildLights() {
@@ -606,7 +750,7 @@ export class ThreeRenderer extends Renderer {
     dir.position.set(18, 30, 12);
     dir.castShadow = true;
     dir.shadow.mapSize.set(this.mobile ? 512 : 1024, this.mobile ? 512 : 1024);
-    const s = CONFIG.house.halfSize + 6;
+    const s = Math.max(CONFIG.house.width, CONFIG.house.depth) / 2 + 8;
     dir.shadow.camera.left = -s;
     dir.shadow.camera.right = s;
     dir.shadow.camera.top = s;
@@ -615,41 +759,79 @@ export class ThreeRenderer extends Renderer {
     this.scene.add(dir);
   }
 
-  _buildHouse() {
-    const half = CONFIG.house.halfSize;
-    const size = half * 2;
+  // 間取りデータから部屋そのもの（床・ゾーン・壁・仕切り・敷居）を建てる。
+  _buildHouse(state) {
+    const { width, depth, wallHeight } = CONFIG.house;
 
-    // フロア
+    // フローリング
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
+      new THREE.PlaneGeometry(width, depth),
       new THREE.MeshStandardMaterial({ color: PALETTE.floor, roughness: 0.95 })
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // 塊魂的なタイル感を出すグリッド
-    const grid = new THREE.GridHelper(size, 16, PALETTE.floorGrid, PALETTE.floorGrid);
-    grid.position.y = 0.02;
-    grid.material.opacity = 0.5;
-    grid.material.transparent = true;
-    this.scene.add(grid);
+    // 床の色分け（キッチンのタイル、ベランダ、ラグなど）
+    for (const z of FLOOR_ZONES) {
+      const geo = z.shape === 'circle'
+        ? new THREE.CircleGeometry(z.w / 2, 32)
+        : new THREE.PlaneGeometry(z.w, z.d);
+      const patch = new THREE.Mesh(
+        geo, new THREE.MeshStandardMaterial({ color: z.color, roughness: 0.95 })
+      );
+      patch.rotation.x = -Math.PI / 2;
+      patch.position.set(z.x, 0.02, z.z);
+      patch.receiveShadow = true;
+      this.scene.add(patch);
+    }
 
-    // 壁（4枚）
+    // フローリングの目地（板の継ぎ目）
+    const lineMat = new THREE.LineBasicMaterial({ color: PALETTE.floorGrid, transparent: true, opacity: 0.35 });
+    const pts = [];
+    for (let x = -width / 2; x <= width / 2; x += 4) {
+      pts.push(new THREE.Vector3(x, 0.05, -depth / 2), new THREE.Vector3(x, 0.05, depth / 2));
+    }
+    this.scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), lineMat));
+
+    // 外周壁（カメラが外に出たら消せるよう、内向き法線と一緒に覚えておく）
     const wallMat = new THREE.MeshStandardMaterial({ color: PALETTE.wall, roughness: 0.9 });
-    const h = CONFIG.house.wallHeight;
-    const t = 0.6; // 厚み
-    const walls = [
-      { w: size + t, d: t, x: 0, z: -half }, // 奥
-      { w: size + t, d: t, x: 0, z:  half }, // 手前
-      { w: t, d: size + t, x: -half, z: 0 }, // 左
-      { w: t, d: size + t, x:  half, z: 0 }, // 右
-    ];
-    for (const wl of walls) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(wl.w, h, wl.d), wallMat);
-      wall.position.set(wl.x, h / 2, wl.z);
-      wall.receiveShadow = true;
-      this.scene.add(wall);
+    this.wallMeshes = [];
+    for (const w of state.walls) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, wallHeight, w.d), wallMat);
+      mesh.position.set(w.x, wallHeight / 2, w.z);
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      const len = Math.hypot(w.x, w.z) || 1;
+      this.wallMeshes.push({ mesh, x: w.x, z: w.z, nx: -w.x / len, nz: -w.z / len }); // 内向き
+    }
+
+    // 仕切り壁（部屋の内側なので常に表示）
+    for (const w of state.partitions) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, wallHeight, w.d), wallMat);
+      mesh.position.set(w.x, wallHeight / 2, w.z);
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+
+    // ベランダとの段差（サッシの敷居）
+    const sillMat = new THREE.MeshStandardMaterial({ color: 0xb9b2a4, roughness: 0.8 });
+    for (const s of state.sills) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(s.w, s.h, s.d), sillMat);
+      mesh.position.set(s.x, s.h / 2, s.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+  }
+
+  // 間取りの家具を配置
+  _buildFurniture(state) {
+    for (const f of state.furniture) {
+      const mesh = createFurnitureMesh(f);
+      mesh.position.set(f.x, 0, f.z);
+      mesh.rotation.y = f.rotY || 0;
+      this.scene.add(mesh);
     }
   }
 
