@@ -275,6 +275,25 @@ export class GameState {
     // state 側は「何が起きたか」だけを伝え、演出の中身は知らない＝レンダラ差し替え可能。
     this.events = [];
 
+    // 家の汚れ具合。ミッションで上がり、床の餌の数を決める。
+    this.dirt = CONFIG.dirt.start;
+    this.nestDelivered = 0; // 巣へ連れて行った延べ匹数（ミッション用）
+
+    // 巣：中に居る仲間は死なない安全地帯。家具に埋まらない位置へ寄せる。
+    this.nests = CONFIG.breeding.nest.spots.map(([x, z]) => {
+      let nx = x, nz = z;
+      for (let i = 0; i < 40; i++) {
+        const blocked = this.obstacles.some((o) => insideBox(o, nx, nz, CONFIG.breeding.nest.radius * 0.5));
+        if (!blocked) break;
+        nx = x + (Math.random() * 2 - 1) * 6;
+        nz = z + (Math.random() * 2 - 1) * 6;
+      }
+      return { id: nextId++, x: nx, z: nz, radius: CONFIG.breeding.nest.radius };
+    });
+
+    // 卵鞘：低確率で現れるレアアイテム
+    this.ootheca = { active: false, x: 0, z: 0, timer: CONFIG.breeding.ootheca.minDelay, life: 0 };
+
     // 危険の解禁状況（匹数がしきい値を超えると有効になる）
     this.unlocked = { hoihoi: false, cat: false, roomba: false, owner: false, spider: false };
 
@@ -282,6 +301,17 @@ export class GameState {
     this.missions = CONFIG.missions.map((m) => ({ ...m, progress: 0, done: false }));
     this.missionIndex = 0;
     this.foodsEaten = 0;
+  }
+
+  // 今あるべき床の餌の数（汚いほど増える）
+  get foodTarget() {
+    return Math.min(CONFIG.dirt.maxFood, Math.round(CONFIG.food.count + this.dirt * CONFIG.dirt.perFood));
+  }
+
+  // 巣の中に居るか（＝安全。ただし餌は拾わない）
+  inNest(r) {
+    if (r.y > 1.5) return false;
+    return this.nests.some((n) => Math.hypot(r.x - n.x, r.z - n.z) < n.radius);
   }
 
   // その危険が今の匹数で有効か。初めて有効になった時だけ通知を出す。
@@ -299,8 +329,12 @@ export class GameState {
     return this.missions[this.missionIndex] || null;
   }
 
-  // ミッションの進行を見る。達成したら仲間が増える。
+  // ミッションの進行を見る。達成すると家の汚度が上がる。
   _updateMissions(dt) {
+    // 巣に居る仲間の数（プレイヤー自身は数えない）
+    this.nestDelivered = this.roaches.filter(
+      (r) => !r.preview && !r.dying && !r.isPlayer && this.inNest(r)
+    ).length;
     const m = this.currentMission;
     if (!m) return;
     const p = this.player;
@@ -316,6 +350,10 @@ export class GameState {
         break;
       case 'balcony':
         if (p.z > CONFIG.house.depth / 2 - 8) this._completeMission(m);
+        break;
+      case 'nest':
+        m.progress = this.nestDelivered;
+        if (m.progress >= m.goal) this._completeMission(m);
         break;
       case 'escape': {
         const near = Math.hypot(p.x - this.cat.x, p.z - this.cat.z) < m.near;
@@ -334,9 +372,12 @@ export class GameState {
   _completeMission(m) {
     m.done = true;
     this.missionIndex++;
+    this.dirt = Math.min(100, this.dirt + m.dirt);
     const p = this.player;
-    for (let i = 0; i < m.reward && this.count < this.target; i++) this._breed(p);
-    this.events.push({ type: 'mission', label: m.label, reward: m.reward, x: p.x, y: p.y, z: p.z });
+    this.events.push({
+      type: 'mission', label: m.label, dirt: m.dirt, total: Math.round(this.dirt),
+      foods: this.foodTarget, x: p.x, y: p.y, z: p.z,
+    });
   }
 
   // 次の1匹に必要なゲージ量。匹数が増えるほど少しずつ重くなる。
@@ -382,9 +423,10 @@ export class GameState {
   // 1フレーム分の進行。main.js はこれだけ呼べばよい。
   update(worldVec, dt) {
     this.updatePlayer(worldVec, dt);
-    this._updateAI(dt);
+    this._updateAI(dt, !!worldVec.gather);
     this._separateRoaches();
     this._updateFoods(dt);
+    this._updateOotheca(dt);
     // 危険は匹数に応じて順番に解禁される
     if (this._hazardActive('hoihoi')) this._updateTraps(dt);
     if (this._hazardActive('cat')) this._updateCat(dt);
@@ -400,6 +442,7 @@ export class GameState {
   // 頭数からは即座に外す（count ゲッタ参照）。
   _kill(roach, cause) {
     if (roach.dying || roach.preview) return;
+    if (this.inNest(roach)) return; // 巣の中は安全（連れて行った仲間は死なない）
     roach.dying = CONFIG.death.flipTime;
     roach.stuck = null;
     this.events.push({ type: 'death', x: roach.x, y: roach.y, z: roach.z, cause });
@@ -778,11 +821,30 @@ export class GameState {
   // --- 仲間ゴキの自律AI ---
   // 視界に餌がなければふらふら徘徊、入ったら真っ直ぐ食いつく。
   // 登りはしない（プレイヤーの特権）。地上のみを歩き、低い段差だけ乗り越える。
-  _updateAI(dt) {
+  _updateAI(dt, gathering) {
     const a = CONFIG.ai;
+    const g = CONFIG.breeding.gather;
+    const p = this.player;
     for (const r of this.roaches) {
       if (r.isPlayer || r.preview || r.dying || r.stuck) continue;
       if (!r.ai) r.ai = { wanderAngle: r.angle, timer: 0 };
+
+      // 集合中：近くの仲間はプレイヤーに付いてくる（巣まで連れて行くための手段）
+      if (gathering) {
+        const dxp = p.x - r.x, dzp = p.z - r.z;
+        const dp = Math.hypot(dxp, dzp);
+        if (dp < g.radius) {
+          if (dp > CONFIG.roach.radius * 3) {
+            this._moveAI(r, dxp / dp, dzp / dp, g.speed, dt);
+          }
+          r.following = true;
+          continue;
+        }
+      }
+      r.following = false;
+
+      // 巣の中に居る仲間はそこに留まる（安全だが餌は拾わない）
+      if (this.inNest(r)) continue;
 
       // 1) 一番近い餌を探す（視界内のみ）
       let best = a.sightRadius, tx = 0, tz = 0, seeking = false;
@@ -867,8 +929,16 @@ export class GameState {
     }
   }
 
-  // 餌の回収と再湧き。
+  // 餌の回収と再湧き。汚度が上がった分だけ床の餌も増やす。
   _updateFoods(dt) {
+    while (this.foods.length < this.foodTarget) {
+      const spot = this._randomFoodSpot();
+      this.foods.push({
+        id: nextId++, kind: pickFoodKind(), x: spot.x, y: 0, z: spot.z,
+        active: true, timer: 0, phase: Math.random() * Math.PI * 2,
+      });
+    }
+
     for (const f of this.foods) {
       if (!f.active) {
         f.timer -= dt;
@@ -886,6 +956,42 @@ export class GameState {
         this._collect(f, r);
         break;
       }
+    }
+  }
+
+  // 卵鞘：低確率で現れ、しばらくで消える。拾うと一気に孵化する。
+  _updateOotheca(dt) {
+    const c = CONFIG.breeding.ootheca;
+    const o = this.ootheca;
+
+    if (!o.active) {
+      o.timer -= dt;
+      if (o.timer > 0) return;
+      const spot = this._randomFoodSpot(6);
+      o.x = spot.x; o.z = spot.z;
+      o.active = true;
+      o.life = c.lifetime;
+      this.events.push({ type: 'oothecaAppear', x: o.x, y: 0, z: o.z });
+      return;
+    }
+
+    // 時間切れで消える（見つけたら急ぐ、という緊張を作る）
+    o.life -= dt;
+    if (o.life <= 0) {
+      o.active = false;
+      o.timer = c.minDelay + Math.random() * (c.maxDelay - c.minDelay);
+      return;
+    }
+
+    for (const r of this.roaches) {
+      if (r.dying || r.preview) continue;
+      if (Math.abs(r.y) > CONFIG.food.reachHeight) continue;
+      if (Math.hypot(r.x - o.x, r.z - o.z) > CONFIG.food.pickupRadius + CONFIG.roach.radius) continue;
+      o.active = false;
+      o.timer = c.minDelay + Math.random() * (c.maxDelay - c.minDelay);
+      for (let i = 0; i < c.hatch && this.count < this.target; i++) this._breed(r);
+      this.events.push({ type: 'hatch', x: o.x, y: 0, z: o.z, count: c.hatch });
+      break;
     }
   }
 

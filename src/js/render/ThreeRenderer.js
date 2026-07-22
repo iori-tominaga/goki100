@@ -393,6 +393,16 @@ function createFoodMesh(kind) {
       body = new THREE.Mesh(new THREE.TorusGeometry(s * 0.34, s * 0.13, 8, 14), mat);
       body.rotation.x = Math.PI / 2 - 0.3;
       break;
+    case 'ootheca': { // 卵鞘：筋の入った小豆色のカプセル
+      body = new THREE.Mesh(new THREE.CapsuleGeometry(s * 0.32, s * 0.7, 6, 10), mat);
+      body.rotation.z = Math.PI / 2;
+      for (let i = 0; i < 5; i++) { // 表面の筋
+        const ridge = new THREE.Mesh(new THREE.BoxGeometry(s * 0.06, s * 0.62, s * 0.06), accentMat);
+        ridge.position.set((i - 2) * s * 0.22, 0, 0);
+        g.add(ridge);
+      }
+      break;
+    }
     case 'poison': { // 毒餌（ブラックキャップ）：明らかに「容器」と分かる見た目にする
       body = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.42, s * 0.46, s * 0.3, 6), mat);
       const lid = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.3, s * 0.3, s * 0.1, 6), accentMat);
@@ -743,6 +753,43 @@ function createSpiderMesh() {
   return g;
 }
 
+// 巣：暗がりの安全地帯。中に居る仲間は死なない。
+// 「ここは安全」と一目で分かるよう、床にリングを敷いて卵を盛る。
+function createNestMesh(radius) {
+  const g = new THREE.Group();
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x4a3628, roughness: 1, transparent: true, opacity: 0.85,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 28), floorMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.position.y = 0.04;
+  disc.receiveShadow = true;
+  g.add(disc);
+
+  // 縁取り（範囲が分かるように）
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.92, radius, 28),
+    new THREE.MeshBasicMaterial({ color: 0xffd93d, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.06;
+  g.add(ring);
+
+  // 卵の山
+  const eggMat = new THREE.MeshStandardMaterial({ color: 0xd8c4a0, roughness: 0.8 });
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const r = radius * (0.15 + (i % 3) * 0.16);
+    const egg = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), eggMat);
+    egg.scale.set(1, 0.75, 1.5);
+    egg.position.set(Math.cos(a) * r, 0.35, Math.sin(a) * r);
+    egg.rotation.y = a;
+    egg.castShadow = true;
+    g.add(egg);
+  }
+  return g;
+}
+
 export class ThreeRenderer extends Renderer {
   init(container, state) {
     this.width = container.clientWidth;
@@ -1057,6 +1104,18 @@ export class ThreeRenderer extends Renderer {
       this.trapMeshes.set(t.id, mesh);
       this.scene.add(mesh);
     }
+    // 巣（安全地帯）
+    for (const n of state.nests) {
+      const mesh = createNestMesh(n.radius);
+      mesh.position.set(n.x, 0, n.z);
+      this.scene.add(mesh);
+    }
+
+    // 卵鞘（レアアイテム。出現している間だけ表示）
+    this.oothecaMesh = createFoodMesh('ootheca');
+    this.oothecaMesh.visible = false;
+    this.scene.add(this.oothecaMesh);
+
     this.catMesh = createCatMesh();
     this.scene.add(this.catMesh);
 
@@ -1131,6 +1190,18 @@ export class ThreeRenderer extends Renderer {
     // 家主が狙っている場所を示すマーカーは _syncAim が担当する
   }
 
+  // 卵鞘：出ている間だけ表示し、大きく跳ねて存在を主張する
+  _syncOotheca(state) {
+    const o = state.ootheca;
+    this.oothecaMesh.visible = o.active;
+    if (!o.active) return;
+    const bob = Math.abs(Math.sin(this.elapsed * 3)) * 0.9;
+    this.oothecaMesh.position.set(o.x, 0.8 + bob, o.z);
+    this.oothecaMesh.rotation.y = this.elapsed * 1.2;
+    // 消える直前は点滅させて「急げ」を伝える
+    this.oothecaMesh.visible = o.life > 4 || Math.sin(this.elapsed * 12) > -0.3;
+  }
+
   // 家主の狙点（腕の振り上げと合わせて予告として機能させる）
   _syncAim(state) {
     const o = state.owner;
@@ -1198,6 +1269,8 @@ export class ThreeRenderer extends Renderer {
         case 'swipe':   this._addRing(ev, 0xff6b6b, 4.0, 0.4); break;   // 猫パンチ
         case 'takeover':this._addRing(ev, 0x4ecdc4, 6.0, 0.9); break;   // 乗り移り先を教える
         case 'roombaBump': this._addRing(ev, 0xc0c4cc, 2.0, 0.35); break; // ルンバが壁で反転
+        case 'hatch':   this._addRing(ev, 0xffd93d, 7.0, 1.0); break;   // 卵鞘が孵化
+        case 'oothecaAppear': this._addRing(ev, 0xffd93d, 4.0, 0.9); break;
         case 'ownerNotice': this._addRing(ev, 0xff9f1c, 3.0, 0.6); break;           // 家主が気づいた
         case 'ownerSlam':  this._addRing(ev, 0x5b7fd4, ev.radius * 1.3, 0.5); break; // スリッパ着弾
         case 'ownerSpray': this._addRing(ev, 0xb8ff5b, ev.radius * 1.5, 0.9); break; // 噴射
@@ -1242,6 +1315,7 @@ export class ThreeRenderer extends Renderer {
     this._syncTraps(state);
     this._syncCat(state, dt);
     this._syncNewHazards(state, dt);
+    this._syncOotheca(state);
     this._syncAim(state);
     this._syncOwner(state, dt);
     this._consumeEvents(state);

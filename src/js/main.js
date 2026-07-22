@@ -25,10 +25,13 @@ if (isTouchDevice()) {
   document.getElementById('controls').innerHTML =
     '<span>左半分でスティック／右半分で視点／2本指でズーム</span>';
 }
+// 集合ボタンはPCでも使う（スペースキーでも可）
+input.attachGather(document.getElementById('gather-btn'));
 
 // HUD 更新（匹数と増殖ゲージ）
 const countEl = document.getElementById('count');
 const gaugeEl = document.getElementById('gauge-fill');
+const dirtEl = document.getElementById('dirt-fill');
 const missionEl = document.getElementById('mission');
 const missionTextEl = document.getElementById('mission-text');
 function updateHud() {
@@ -36,6 +39,7 @@ function updateHud() {
   const ratio = Math.max(0, Math.min(1, state.gauge / state.gaugeMax));
   gaugeEl.style.width = `${ratio * 100}%`;
   gaugeEl.classList.toggle('hot', ratio > 0.8);
+  dirtEl.style.width = `${Math.min(100, state.dirt)}%`;
 
   const m = state.currentMission;
   if (!m) {
@@ -43,7 +47,7 @@ function updateHud() {
     missionEl.classList.add('done');
   } else {
     const progress = m.goal ? `（${Math.floor(m.progress)}/${m.goal}）` : '';
-    missionTextEl.textContent = `${m.label}${progress} → +${m.reward}匹`;
+    missionTextEl.textContent = `${m.label}${progress} → よごれ +${m.dirt}`;
     missionEl.classList.remove('done');
   }
 }
@@ -69,7 +73,9 @@ function showToast(text, danger) {
 function handleNotices() {
   for (const ev of state.events) {
     if (ev.type === 'hazardAppear' && HAZARD_NAMES[ev.name]) showToast(HAZARD_NAMES[ev.name], true);
-    else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 仲間が${ev.reward}匹増えた`, false);
+    else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 家が汚れた（+${ev.dirt}） 餌が${ev.foods}個に`, false);
+    else if (ev.type === 'oothecaAppear') showToast('🥚 卵鞘が出現した！ 急いで取りに行こう', false);
+    else if (ev.type === 'hatch') showToast(`🥚 卵鞘が孵化！ ${ev.count}匹増えた`, false);
   }
 }
 
@@ -135,6 +141,7 @@ function loop(now) {
       x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r, // world 基準（地上用）
       fwd: f, right: r,                               // 画面基準（登り用）
       rightX: rgtX, rightZ: rgtZ,                     // カメラ右ベクトル（左右の向き合わせ）
+      gather: input.gathering,                        // 集合ボタンの状態
     };
     state.update(move, dt);
     renderer.sync(state, dt);

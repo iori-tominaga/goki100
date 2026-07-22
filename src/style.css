@@ -107,6 +107,45 @@ html, body {
   font-size: 14px;
   color: #444;
 }
+/* 汚れ度メーター（餌の量に直結する） */
+.gauge.dirt { margin-top: 6px; }
+#dirt-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b7d67a, #7a5230);
+  transition: width 0.3s ease;
+}
+
+/* 集合ボタン（押している間だけ仲間が付いてくる） */
+#gather-btn {
+  display: none;
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 22;
+  width: 88px;
+  height: 88px;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  color: #5b3b1a;
+  background: rgba(255, 217, 61, 0.9);
+  border: 4px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.2);
+  touch-action: none;
+  cursor: pointer;
+}
+#gather-btn.on {
+  background: #2ec4b6;
+  color: #fff;
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
 /* 今挑戦中のミッション */
 #mission {
   margin-top: 8px;

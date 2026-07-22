@@ -108,6 +108,30 @@ export const CONFIG = {
   },
 
 
+  // ===== 増殖の手段 =====
+  // 餌拾いだけだと「床の餌の数」が増殖の上限になり、匹数30前後で
+  // 死亡と拮抗して止まる（実測）。死亡は匹数に比例して増えるので、
+  // 増殖側にも「増えるほど伸びる」経路が要る。
+  breeding: {
+    // 卵鞘：低確率で現れるレアアイテム。拾うと一気に孵化する。
+    ootheca: { hatch: 6, minDelay: 28, maxDelay: 55, lifetime: 22 },
+
+    // 巣：中に居る仲間は死なない。ただし餌も拾わないので、
+    // 入れすぎると増殖が止まる＝「守る」と「稼ぐ」のトレードオフになる。
+    nest: { radius: 5.0, spots: [[-34, 21], [33, 20], [-34, -7]] },
+
+    // 集合：押している間だけ、近くの仲間がプレイヤーに付いてくる。
+    gather: { radius: 14, speed: 8.0 },
+  },
+
+  // 家の汚れ具合（0〜100）。ミッションを達成すると上がり、
+  // 汚いほど床の食べ残しが増える＝増殖の上限そのものが上がる。
+  dirt: {
+    start: 0,
+    perFood: 0.34,   // 汚度1につき床の餌がこれだけ増える
+    maxFood: 70,     // 餌の数の上限
+  },
+
   // 匹数に応じて危険が段階的に増えていく。
   // 序盤は静かな家、増えるほど住人が本気で駆除にかかる、という筋書き。
   // 「最初から全部の危険が動いている」と、序盤に立ち上がる余地がなくなる。
@@ -120,12 +144,15 @@ export const CONFIG = {
   },
 
   // ミッション。達成すると仲間が増える（餌集め以外の増殖手段）。
+  // ミッション。達成すると「家の汚度」が上がり、床の食べ残しが増える。
+  // 匹数を直接配るより、増殖の上限そのものを押し上げる方が効く。
   missions: [
-    { id: 'climb',   label: '家具の上に登る',        reward: 3 },
-    { id: 'food',    label: '餌を10個あつめる',      reward: 4, goal: 10 },
-    { id: 'balcony', label: 'ベランダまで行く',      reward: 4 },
-    { id: 'escape',  label: '猫の近くで6秒生き延びる', reward: 5, goal: 6, near: 9 },
-    { id: 'high',    label: 'キッチンの調理台に登る', reward: 6 },
+    { id: 'climb',   label: '家具の上に登る',         dirt: 12 },
+    { id: 'food',    label: '餌を10個あつめる',       dirt: 14, goal: 10 },
+    { id: 'balcony', label: 'ベランダまで行く',       dirt: 14 },
+    { id: 'nest',    label: '仲間を巣に3匹つれて行く', dirt: 16, goal: 3 },
+    { id: 'escape',  label: '猫の近くで6秒生き延びる', dirt: 18, goal: 6, near: 9 },
+    { id: 'high',    label: 'キッチンの調理台に登る', dirt: 20 },
   ],
 
   // 仰向けにひっくり返って消えるまでの秒数。
@@ -134,7 +161,7 @@ export const CONFIG = {
   // 増殖ゲージ。溜まるほど次の1匹に必要な量が増える（後半ほど大変になる）。
   gauge: {
     base: 42,      // 2匹目に必要な量
-    growth: 0.02,  // 1匹増えるごとに必要量が +2%（100匹時で約7倍。上げると後半が重くなる）
+    growth: 0.012, // 1匹増えるごとに必要量が +1.2%（後半が重くなりすぎないよう緩めた）
   },
 
   // オービットカメラ（ドラッグ回転＋ホイールズーム／移動はカメラ基準）
@@ -260,6 +287,8 @@ export const FOODS = {
   crumb:  { weight: 4, value: 12, shape: 'crumb',  size: 1.0, color: 0xd9a05b, accent: 0x8a5a2b, label: 'パンくず' },
   noodle: { weight: 3, value: 18, shape: 'noodle', size: 1.1, color: 0xffe08a, accent: 0xff9f1c, label: '麺' },
   candy:  { weight: 2, value: 24, shape: 'candy',  size: 1.0, color: 0xff6b6b, accent: 0x6c5ce7, label: 'あめ玉' },
+  // 卵鞘（らんしょう）。weight 0 ＝ 通常抽選には出ず、レア枠としてだけ現れる。
+  ootheca:{ weight: 0, value: 0,  shape: 'ootheca', size: 1.6, color: 0x7a4a24, accent: 0x3b2a18, label: '卵鞘' },
 };
 
 // 特大の人間（障害物として絡む）。sitting=座り姿勢のおばあちゃん、standing=立ちの家主。
