@@ -29,13 +29,49 @@ if (isTouchDevice()) {
 // HUD 更新（匹数と増殖ゲージ）
 const countEl = document.getElementById('count');
 const gaugeEl = document.getElementById('gauge-fill');
+const missionEl = document.getElementById('mission');
+const missionTextEl = document.getElementById('mission-text');
 function updateHud() {
   countEl.textContent = `${state.count} / ${state.target}`;
   const ratio = Math.max(0, Math.min(1, state.gauge / state.gaugeMax));
   gaugeEl.style.width = `${ratio * 100}%`;
   gaugeEl.classList.toggle('hot', ratio > 0.8);
+
+  const m = state.currentMission;
+  if (!m) {
+    missionTextEl.textContent = 'ミッション全達成！';
+    missionEl.classList.add('done');
+  } else {
+    const progress = m.goal ? `（${Math.floor(m.progress)}/${m.goal}）` : '';
+    missionTextEl.textContent = `${m.label}${progress} → +${m.reward}匹`;
+    missionEl.classList.remove('done');
+  }
 }
 updateHud();
+
+// 危険の出現・ミッション達成を数秒だけ知らせる
+const toastEl = document.getElementById('toast');
+const HAZARD_NAMES = {
+  hoihoi: '🪤 ゴキブリホイホイが仕掛けられた！',
+  cat: '🐱 飼い猫が気づいた！',
+  roomba: '🤖 ルンバが動き出した！',
+  owner: '😠 家主が本気になった！',
+  spider: '🕷 家蜘蛛が寄ってきた！',
+};
+let toastTimer = null;
+function showToast(text, danger) {
+  toastEl.textContent = text;
+  toastEl.classList.toggle('danger', !!danger);
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+}
+function handleNotices() {
+  for (const ev of state.events) {
+    if (ev.type === 'hazardAppear' && HAZARD_NAMES[ev.name]) showToast(HAZARD_NAMES[ev.name], true);
+    else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 仲間が${ev.reward}匹増えた`, false);
+  }
+}
 
 // --- 画面サイズ追従 ---
 // スマホのブラウザはURLバーが出入りするたびに見える高さが変わる。
@@ -102,6 +138,7 @@ function loop(now) {
     };
     state.update(move, dt);
     renderer.sync(state, dt);
+    handleNotices();
     state.events.length = 0; // 描画へ渡し終えた出来事は毎フレーム捨てる
     updateHud();
     checkResult();

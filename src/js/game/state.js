@@ -274,6 +274,69 @@ export class GameState {
     // 描画側へ渡す一過性の出来事（拾った・増えた）。sync 後に main.js がクリアする。
     // state 側は「何が起きたか」だけを伝え、演出の中身は知らない＝レンダラ差し替え可能。
     this.events = [];
+
+    // 危険の解禁状況（匹数がしきい値を超えると有効になる）
+    this.unlocked = { hoihoi: false, cat: false, roomba: false, owner: false, spider: false };
+
+    // ミッション（餌集め以外の増殖手段）。上から順に1つずつ挑戦する。
+    this.missions = CONFIG.missions.map((m) => ({ ...m, progress: 0, done: false }));
+    this.missionIndex = 0;
+    this.foodsEaten = 0;
+  }
+
+  // その危険が今の匹数で有効か。初めて有効になった時だけ通知を出す。
+  _hazardActive(name) {
+    const on = this.count >= CONFIG.escalation[name];
+    if (on && !this.unlocked[name]) {
+      this.unlocked[name] = true;
+      this.events.push({ type: 'hazardAppear', name });
+    }
+    return on;
+  }
+
+  // 今挑戦中のミッション（全部終わっていれば null）
+  get currentMission() {
+    return this.missions[this.missionIndex] || null;
+  }
+
+  // ミッションの進行を見る。達成したら仲間が増える。
+  _updateMissions(dt) {
+    const m = this.currentMission;
+    if (!m) return;
+    const p = this.player;
+    if (!p || p.dying) return;
+
+    switch (m.id) {
+      case 'climb':
+        if (p.y > 3) this._completeMission(m);
+        break;
+      case 'food':
+        m.progress = this.foodsEaten;
+        if (m.progress >= m.goal) this._completeMission(m);
+        break;
+      case 'balcony':
+        if (p.z > CONFIG.house.depth / 2 - 8) this._completeMission(m);
+        break;
+      case 'escape': {
+        const near = Math.hypot(p.x - this.cat.x, p.z - this.cat.z) < m.near;
+        m.progress = near ? m.progress + dt : Math.max(0, m.progress - dt * 0.5);
+        if (m.progress >= m.goal) this._completeMission(m);
+        break;
+      }
+      case 'high':
+        if (p.y > 7.5) this._completeMission(m);
+        break;
+      default:
+        break;
+    }
+  }
+
+  _completeMission(m) {
+    m.done = true;
+    this.missionIndex++;
+    const p = this.player;
+    for (let i = 0; i < m.reward && this.count < this.target; i++) this._breed(p);
+    this.events.push({ type: 'mission', label: m.label, reward: m.reward, x: p.x, y: p.y, z: p.z });
   }
 
   // 次の1匹に必要なゲージ量。匹数が増えるほど少しずつ重くなる。
@@ -322,11 +385,13 @@ export class GameState {
     this._updateAI(dt);
     this._separateRoaches();
     this._updateFoods(dt);
-    this._updateTraps(dt);
-    this._updateCat(dt);
-    this._updateRoomba(dt);
-    this._updateSpider(dt);
-    this._updateOwner(dt);
+    // 危険は匹数に応じて順番に解禁される
+    if (this._hazardActive('hoihoi')) this._updateTraps(dt);
+    if (this._hazardActive('cat')) this._updateCat(dt);
+    if (this._hazardActive('roomba')) this._updateRoomba(dt);
+    if (this._hazardActive('spider')) this._updateSpider(dt);
+    if (this._hazardActive('owner')) this._updateOwner(dt);
+    this._updateMissions(dt);
     this._updateDying(dt);
   }
 
@@ -419,7 +484,8 @@ export class GameState {
     if (cat.swipeAnim > 0) cat.swipeAnim -= dt;
 
     // 一番近いゴキを探す（高い所へ逃げた個体は諦める＝登りが避難になる）
-    let best = c.sightRadius, target = null;
+    let best = c.sightRadius;
+    let target = null;
     for (const r of this.roaches) {
       if (r.dying || r.preview || r.y > 1.5) continue;
       const d = Math.hypot(r.x - cat.x, r.z - cat.z);
@@ -444,19 +510,15 @@ export class GameState {
       dirX = Math.sin(cat.wanderAngle); dirZ = Math.cos(cat.wanderAngle);
     }
 
-    // 移動（猫は大きいので、背の高い家具にだけぶつかる簡易版）
+    // 移動（詰まったら追跡を諦めて別方向へ。角に挟まったままにしない）
     cat.angle = Math.atan2(dirX, dirZ);
-    let nx = cat.x + dirX * c.speed * dt;
-    let nz = cat.z + dirZ * c.speed * dt;
-    for (const o of this.obstacles) {
-      if (o.top < 6) continue; // 低い家具はまたぐ
-      const hit = boxResolve(o, nx, nz, c.radius);
-      if (hit) { nx = hit.x; nz = hit.z; }
+    const stuck = this._moveActor(cat, dirX, dirZ, c.speed, c.radius, dt, 6);
+    if (stuck > 0.5) {
+      cat.wanderAngle = Math.atan2(-cat.x, -cat.z) + (Math.random() - 0.5) * 2;
+      cat.wanderTimer = c.wanderInterval;
+      cat.chasing = false;
+      target = null;
     }
-    const boundX = CONFIG.house.width / 2 - c.radius;
-    const boundZ = CONFIG.house.depth / 2 - c.radius;
-    cat.x = Math.max(-boundX, Math.min(boundX, nx));
-    cat.z = Math.max(-boundZ, Math.min(boundZ, nz));
 
     // 猫パンチ：射程に入っていればクールダウン毎に範囲攻撃
     if (target && best < c.swipeRadius && cat.swipeCd <= 0) {
@@ -468,6 +530,41 @@ export class GameState {
         if (Math.hypot(r.x - cat.x, r.z - cat.z) < c.swipeRadius) this._kill(r, 'cat');
       }
     }
+  }
+
+  // 敵キャラ共通の移動。押し出しで進めなくなったら stuckTime が伸びていくので、
+  // 呼び出し側はそれを見て進路を変える。これが無いと家具の角に挟まって
+  // 永久に動けなくなる（＝スタック）。
+  _moveActor(a, dirX, dirZ, speed, radius, dt, minTop = 6) {
+    const wantX = a.x + dirX * speed * dt;
+    const wantZ = a.z + dirZ * speed * dt;
+    let nx = wantX, nz = wantZ;
+
+    for (const o of this.obstacles) {
+      if (o.top < minTop) continue;              // 低い家具はまたぐ
+      const hit = boxResolve(o, nx, nz, radius);
+      if (hit) { nx = hit.x; nz = hit.z; }
+    }
+
+    const boundX = CONFIG.house.width / 2 - radius;
+    const boundZ = CONFIG.house.depth / 2 - radius;
+    nx = Math.max(-boundX, Math.min(boundX, nx));
+    nz = Math.max(-boundZ, Math.min(boundZ, nz));
+
+    const moved = Math.hypot(nx - a.x, nz - a.z);
+    const wanted = Math.hypot(wantX - a.x, wantZ - a.z);
+    a.x = nx; a.z = nz;
+
+    // 進みたい距離の3割も動けていなければ「詰まっている」と判定
+    a.stuckTime = (wanted > 1e-4 && moved < wanted * 0.3) ? (a.stuckTime || 0) + dt : 0;
+
+    // それでも長く抜けられない時は、部屋の中心へ向けて強制的に押し出す
+    if (a.stuckTime > 1.5) {
+      const len = Math.hypot(a.x, a.z) || 1;
+      a.x -= (a.x / len) * speed * dt * 1.5;
+      a.z -= (a.z / len) * speed * dt * 1.5;
+    }
+    return a.stuckTime;
   }
 
   // --- ルンバ：直進 → ぶつかったら向きを変える。進路上のゴキを吸い込む ---
@@ -492,26 +589,19 @@ export class GameState {
     }
 
     const dirX = Math.sin(rb.angle), dirZ = Math.cos(rb.angle);
-    let nx = rb.x + dirX * c.speed * dt;
-    let nz = rb.z + dirZ * c.speed * dt;
+    const before = { x: rb.x, z: rb.z };
+    const stuck = this._moveActor(rb, dirX, dirZ, c.speed, c.radius, dt, 3);
 
-    // 壁・背の高い家具にぶつかったら向きを変える（本物のバンパーと同じ挙動）
-    let bumped = false;
-    for (const o of this.obstacles) {
-      if (o.top < 3) continue;   // 低いものは乗り越えていく体で無視
-      if (boxResolve(o, nx, nz, c.radius)) { bumped = true; break; }
-    }
-    const boundX = CONFIG.house.width / 2 - c.radius;
-    const boundZ = CONFIG.house.depth / 2 - c.radius;
-    if (nx < -boundX || nx > boundX || nz < -boundZ || nz > boundZ) bumped = true;
-
-    if (bumped) {
+    // ほとんど進めなかった＝バンパーが反応した、として向きを変える
+    const moved = Math.hypot(rb.x - before.x, rb.z - before.z);
+    if (moved < c.speed * dt * 0.5 || stuck > 0.2) {
       rb.pause = c.turnPause;
       rb.spin = (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);
+      rb.angle += Math.PI * (0.5 + Math.random());   // 大きく向きを変えて確実に脱出
+      rb.stuckTime = 0;
       this.events.push({ type: 'roombaBump', x: rb.x, y: 0, z: rb.z });
       return;
     }
-    rb.x = nx; rb.z = nz;
 
     // 吸い込み：床に居るゴキを巻き込む
     for (const r of this.roaches) {
@@ -629,13 +719,13 @@ export class GameState {
         const d = Math.hypot(dx, dz);
         g.rotY = Math.atan2(dx, dz); // 常に獲物の方を向く
         if (d > c.stopDistance && o.timer > 0) {
-          const step = Math.min(c.walkSpeed * dt, d - c.stopDistance);
-          const boundX = CONFIG.house.width / 2 - g.radius;
-          const boundZ = CONFIG.house.depth / 2 - g.radius;
-          g.x = Math.max(-boundX, Math.min(boundX, g.x + (dx / d) * step));
-          g.z = Math.max(-boundZ, Math.min(boundZ, g.z + (dz / d) * step));
+          // 大きな家具は避けて歩く。抜けられなければ諦めてその場から攻撃する
+          const speed = Math.min(c.walkSpeed, (d - c.stopDistance) / Math.max(dt, 1e-3));
+          const stuck = this._moveActor(g, dx / d, dz / d, speed, g.radius, dt, 10);
           o.walking = true;
-          break;
+          if (stuck < 0.8) break;
+          o.targetX = g.x + (dx / d) * c.stopDistance;
+          o.targetZ = g.z + (dz / d) * c.stopDistance;
         }
         o.phase = 'raise';
         o.timer = c.raiseTime;
@@ -803,6 +893,7 @@ export class GameState {
     food.active = false;
     food.timer = CONFIG.food.respawnDelay;
     this.gauge += FOODS[food.kind].value;
+    if (roach.isPlayer) this.foodsEaten++;
     this.events.push({ type: 'pickup', x: food.x, y: food.y, z: food.z, kind: food.kind });
 
     // 満タン分だけ増殖（高得点の餌で一気に2匹増えることもある）

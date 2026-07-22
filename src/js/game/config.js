@@ -108,6 +108,26 @@ export const CONFIG = {
   },
 
 
+  // 匹数に応じて危険が段階的に増えていく。
+  // 序盤は静かな家、増えるほど住人が本気で駆除にかかる、という筋書き。
+  // 「最初から全部の危険が動いている」と、序盤に立ち上がる余地がなくなる。
+  escalation: {
+    hoihoi: 1,    // 元から仕掛けてある
+    cat: 8,       // 猫が異変に気づく
+    roomba: 18,   // 掃除が始まる
+    owner: 30,    // 家主が本気を出す
+    spider: 45,   // 家蜘蛛まで寄ってくる
+  },
+
+  // ミッション。達成すると仲間が増える（餌集め以外の増殖手段）。
+  missions: [
+    { id: 'climb',   label: '家具の上に登る',        reward: 3 },
+    { id: 'food',    label: '餌を10個あつめる',      reward: 4, goal: 10 },
+    { id: 'balcony', label: 'ベランダまで行く',      reward: 4 },
+    { id: 'escape',  label: '猫の近くで6秒生き延びる', reward: 5, goal: 6, near: 9 },
+    { id: 'high',    label: 'キッチンの調理台に登る', reward: 6 },
+  ],
+
   // 仰向けにひっくり返って消えるまでの秒数。
   death: { flipTime: 1.2 },
 

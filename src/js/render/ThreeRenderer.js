@@ -1110,6 +1110,11 @@ export class ThreeRenderer extends Renderer {
 
   // ルンバ・家蜘蛛・スリッパの見た目を state に合わせる
   _syncNewHazards(state, dt) {
+    // まだ解禁されていない敵は登場させない
+    this.roombaMesh.visible = state.unlocked.roomba;
+    this.spiderMesh.visible = state.unlocked.spider;
+    this.catMesh.visible = state.unlocked.cat;
+
     // ルンバ：位置と向き（方向転換中はその場で回る）
     const rb = state.roomba;
     this.roombaMesh.position.set(rb.x, 0, rb.z);

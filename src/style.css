@@ -107,6 +107,43 @@ html, body {
   font-size: 14px;
   color: #444;
 }
+/* 今挑戦中のミッション */
+#mission {
+  margin-top: 8px;
+  display: inline-block;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(108, 92, 231, 0.85);
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.15);
+}
+#mission.done { background: rgba(46, 196, 182, 0.9); }
+
+/* 危険の出現・ミッション達成の通知 */
+#toast {
+  position: fixed;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: 12px 26px;
+  font-size: 19px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  border: 3px solid #ffd93d;
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  text-align: center;
+}
+#toast.show { opacity: 1; }
+#toast.danger { border-color: #ff3b3b; }
+
 /* --- 決着画面（全滅／達成） --- */
 #result {
   position: fixed;

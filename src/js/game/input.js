@@ -45,15 +45,22 @@ export class InputManager {
   // zone   … 指を置ける領域（画面左半分の透明な div）
   // base   … 指を置いた位置に出るスティックの台座
   // knob   … 傾けた方向に動くつまみ
+  //
   // 指を置いた場所が原点になる「フローティング方式」。
   // 固定位置だと親指の位置が縛られて窮屈になるため。
+  //
+  // ※タッチ端末では Pointer Events ではなく Touch Events を使う。
+  //   iOS Safari の setPointerCapture は指を離した通知を取りこぼすことがあり、
+  //   その結果「離したのに走り続ける」状態になっていた。
+  //   Touch Events なら touchstart した要素に以降のイベントが必ず届き、
+  //   touches.length で「画面に残っている指の数」を直接確認できる。
   attachStick(zone, base, knob) {
     const origin = { x: 0, y: 0 };
 
     // つまみが台座からはみ出さない上限を、実際の要素サイズから計算する。
-    // 目分量で決めるとサイズを変えた時に必ずズレる（＝以前はみ出していた）。
+    // 目分量で決めるとサイズを変えた時に必ずズレる。
     const radiusOf = (el, fallback) => (el.offsetWidth || fallback) / 2;
-    const limit = () => Math.max(10, radiusOf(base, 120) - radiusOf(knob, 56));
+    const limit = () => Math.max(10, radiusOf(base, 140) - radiusOf(knob, 56));
 
     const show = (x, y) => {
       base.style.left = knob.style.left = `${x}px`;
@@ -62,38 +69,31 @@ export class InputManager {
     };
     const hide = () => { base.style.opacity = knob.style.opacity = '0'; };
 
-    zone.addEventListener('pointerdown', (e) => {
+    const begin = (id, x, y) => {
       if (this.stick.pointerId !== null) return; // 1本目の指だけ受け付ける
-      this.stick.pointerId = e.pointerId;
+      this.stick.pointerId = id;
       this.stick.active = true;
-      origin.x = e.clientX; origin.y = e.clientY;
-      show(e.clientX, e.clientY);
-      zone.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    });
+      origin.x = x; origin.y = y;
+      show(x, y);
+    };
 
-    zone.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== this.stick.pointerId) return;
+    const drag = (x, y) => {
       const maxRadius = limit();
-      let dx = e.clientX - origin.x;
-      let dy = e.clientY - origin.y;
+      let dx = x - origin.x;
+      let dy = y - origin.y;
       const d = Math.hypot(dx, dy);
       if (d > maxRadius) { dx = (dx / d) * maxRadius; dy = (dy / d) * maxRadius; }
-      // つまみを傾けた方向へ移動（見た目）。台座の内側に必ず収まる。
-      knob.style.left = `${origin.x + dx}px`;
+      knob.style.left = `${origin.x + dx}px`;   // 台座の内側に必ず収まる
       knob.style.top = `${origin.y + dy}px`;
-      // 画面基準のベクトルへ（上へ倒す＝奥＝-z）
       const k = Math.min(1, d / maxRadius);
       const len = Math.max(1e-4, Math.hypot(dx, dy));
-      this.stick.x = (dx / len) * k;
+      this.stick.x = (dx / len) * k;            // 上へ倒す＝奥＝-z
       this.stick.z = (dy / len) * k;
-      e.preventDefault();
-    });
+    };
 
-    // 指を離した合図を取りこぼすと入力が入りっぱなしになり、
-    // ゴキが永遠に走り続ける。考えられる経路すべてで確実に止める。
-    const release = (e) => {
-      if (e && e.pointerId !== undefined && e.pointerId !== this.stick.pointerId) return;
+    // 入力を必ず止める。取りこぼすと永遠に走り続けるので、
+    // 疑わしい場面ではすべてここへ集約する。
+    const release = () => {
       this.stick.pointerId = null;
       this.stick.active = false;
       this.stick.x = this.stick.z = 0;
@@ -101,13 +101,56 @@ export class InputManager {
     };
     this._releaseStick = release;
 
-    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      zone.addEventListener(type, release);
-      // 領域の外で指を離した場合は zone にイベントが来ないので window でも受ける
-      window.addEventListener(type, release);
+    if ('ontouchstart' in window) {
+      // --- タッチ端末（実機のスマホ）---
+      const touchById = (list, id) => {
+        for (const t of list) if (t.identifier === id) return t;
+        return null;
+      };
+
+      zone.addEventListener('touchstart', (e) => {
+        const t = e.changedTouches[0];
+        if (!t) return;
+        begin(t.identifier, t.clientX, t.clientY);
+        e.preventDefault();
+      }, { passive: false });
+
+      zone.addEventListener('touchmove', (e) => {
+        const t = touchById(e.touches, this.stick.pointerId);
+        if (!t) return;
+        drag(t.clientX, t.clientY);
+        e.preventDefault();
+      }, { passive: false });
+
+      const touchEnd = (e) => {
+        // 画面から指がすべて離れたら、識別子に関係なく必ず止める
+        if (e.touches.length === 0) { release(); return; }
+        // 自分の指が残っていなければ止める
+        if (!touchById(e.touches, this.stick.pointerId)) release();
+      };
+      // 領域の外で離した場合に備え、document でも受ける
+      for (const el of [zone, document]) {
+        el.addEventListener('touchend', touchEnd, { passive: true });
+        el.addEventListener('touchcancel', touchEnd, { passive: true });
+      }
+    } else {
+      // --- マウス等（PCでの確認用）---
+      zone.addEventListener('pointerdown', (e) => {
+        begin(e.pointerId, e.clientX, e.clientY);
+        e.preventDefault();
+      });
+      zone.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== this.stick.pointerId) return;
+        drag(e.clientX, e.clientY);
+      });
+      for (const type of ['pointerup', 'pointercancel']) {
+        zone.addEventListener(type, (e) => { if (e.pointerId === this.stick.pointerId) release(); });
+        window.addEventListener(type, (e) => { if (e.pointerId === this.stick.pointerId) release(); });
+      }
     }
-    // アプリ切り替え・着信などで画面から離れた時も必ず解除する
-    window.addEventListener('blur', () => release());
+
+    // アプリ切り替え・着信・画面を隠した時は、どの入力方式でも必ず解除する
+    window.addEventListener('blur', release);
     document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
 
     zone.style.display = 'block';
