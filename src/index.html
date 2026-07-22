@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <!-- スマホ：ピンチ拡大や二重タップズームを禁止し、ノッチ内側まで描画する -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#a0e7ff" />
+  <title>ゴキブリは1匹みたら100匹いると思え</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Three.js を importmap で読み込む（ビルド不要） -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- HUD -->
+  <header id="hud">
+    <h1>ゴキブリは1匹みたら100匹いると思え</h1>
+    <p class="counter">🪳 <span id="count">1 / 100</span></p>
+    <div class="gauge">
+      <div class="gauge-label">増殖ゲージ</div>
+      <div class="gauge-bar"><div id="gauge-fill"></div></div>
+    </div>
+  </header>
+
+  <!-- スマホ用：左半分が仮想スティック領域。右半分のドラッグはカメラ回転に使う -->
+  <div id="stick-zone"></div>
+  <div id="stick-base"></div>
+  <div id="stick-knob"></div>
+
+  <footer id="controls">
+    <span>移動：</span>
+    <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd>
+    <span>または</span>
+    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+    <span>／ 食べ残しを拾って増殖！</span>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
