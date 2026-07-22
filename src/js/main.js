@@ -37,7 +37,40 @@ function updateHud() {
 }
 updateHud();
 
-window.addEventListener('resize', () => renderer.resize());
+// --- 画面サイズ追従 ---
+// スマホのブラウザはURLバーが出入りするたびに見える高さが変わる。
+// resize だけでは取りこぼすので visualViewport も監視し、
+// さらに回転直後は値が確定していないことがあるので少し遅らせて測り直す。
+function refreshSize() {
+  renderer.resize();
+}
+window.addEventListener('resize', refreshSize);
+window.addEventListener('orientationchange', () => {
+  refreshSize();
+  setTimeout(refreshSize, 300);
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', refreshSize);
+}
+
+// --- 決着表示（全滅／100匹達成） ---
+const resultEl = document.getElementById('result');
+document.getElementById('result-retry').addEventListener('click', () => location.reload());
+let resultShown = false;
+
+function checkResult() {
+  if (resultShown) return;
+  const won = state.count >= state.target;
+  if (!state.gameOver && !won) return;
+
+  resultShown = true;
+  document.getElementById('result-icon').textContent = won ? '🎉' : '🪳';
+  document.getElementById('result-title').textContent = won ? '100匹 達成！' : 'ぜんめつ…';
+  document.getElementById('result-text').textContent = won
+    ? 'この家はもうあなたのものですヌルフフ'
+    : 'この家のゴキブリは絶えました';
+  resultEl.hidden = false;
+}
 
 // デバッグ用フック（描画検証で使用。ゲーム挙動には影響しない）
 window.__goki = { state, renderer };
@@ -60,6 +93,7 @@ function loop(now) {
     renderer.sync(state, dt);
     state.events.length = 0; // 描画へ渡し終えた出来事は毎フレーム捨てる
     updateHud();
+    checkResult();
   }
 
   // 2) 描画

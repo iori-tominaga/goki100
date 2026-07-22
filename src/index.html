@@ -6,6 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#a0e7ff" />
+  <!-- iOS：ホーム画面に追加するとURLバー・タブバーが消え、全画面で遊べる -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="goki100" />
+  <link rel="manifest" href="manifest.json" />
   <title>ゴキブリは1匹みたら100匹いると思え</title>
   <link rel="stylesheet" href="style.css" />
 
@@ -30,6 +35,16 @@
       <div class="gauge-bar"><div id="gauge-fill"></div></div>
     </div>
   </header>
+
+  <!-- 決着表示（全滅／100匹達成）。main.js が状態を見て出す -->
+  <div id="result" hidden>
+    <div class="result-card">
+      <p id="result-icon">🪳</p>
+      <h2 id="result-title">ぜんめつ…</h2>
+      <p id="result-text">この家のゴキブリは絶えました</p>
+      <button id="result-retry" type="button">もう一度やる</button>
+    </div>
+  </div>
 
   <!-- スマホ用：左半分が仮想スティック領域。右半分のドラッグはカメラ回転に使う -->
   <div id="stick-zone"></div>

@@ -1,0 +1,11 @@
+{
+  "name": "ゴキブリは1匹みたら100匹いると思え",
+  "short_name": "goki100",
+  "description": "家の中でゴキブリを増やして100匹を目指す3D育成くそげー",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#a0e7ff",
+  "theme_color": "#a0e7ff"
+}
