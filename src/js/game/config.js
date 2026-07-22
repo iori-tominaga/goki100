@@ -9,8 +9,9 @@ export const CONFIG = {
   // 中心が原点。x は -width/2〜+width/2、z は -depth/2〜+depth/2。
   // 縮尺の目安：1ユニット ≒ 11cm（部屋 約7m×4.6m）。
   house: {
-    width: 64,
-    depth: 42,
+    // SPREAD 倍した間取りに合わせた広さ（歩けるスペースを確保するため拡張）
+    width: 78,
+    depth: 51,
     wallHeight: 22,
     wallThickness: 1.4,
   },
@@ -70,14 +71,30 @@ export const CONFIG = {
       speed: 5.8, sightRadius: 12, swipeRadius: 2.0,
       swipeInterval: 2.4, wanderInterval: 2.5, radius: 2.2,
     },
-    // 家主のゴキジェット：予告してから、ゴキの居るあたりへ噴射。範囲内は全滅。
-    spray: { interval: 22, warning: 2.2, radius: 5.0 },
 
     // ルンバ：直進し、ぶつかると向きを変えて徘徊。進路上のゴキを吸い込む。
     // 動きが読めるぶん「避ける楽しさ」になる。
     // runTime 秒走ったら restTime 秒休む（本物と同じで充電に戻るイメージ）。
     // 常時走らせると部屋中を舐め回して群れが持たないため、安全な時間帯を作る。
     roomba: { speed: 8.0, radius: 3.0, killRadius: 1.8, turnPause: 0.45, runTime: 14, restTime: 16 },
+
+    // 家主：置物ではなく能動的な敵。ゴキの群れを見つけると「歩いて近づき」、
+    // 腕を振り上げてから叩く／スプレーを構えて噴射する。
+    // 攻撃を人間の動作として見せることが肝心で、
+    // 「どこからともなく攻撃が飛んでくる」状態では恐怖にならない。
+    owner: {
+      walkSpeed: 6.2,      // ゴキ(9)より遅い＝走れば逃げ切れる
+      sight: 34,           // 部屋のかなり広い範囲を見渡す
+      stopDistance: 7,     // これくらいまで近づいてから攻撃
+      raiseTime: 1.3,      // 腕を振り上げてから振り下ろすまで（＝予告時間）
+      strikeTime: 0.25,
+      recoverTime: 1.2,    // 攻撃後の隙
+      restTime: 4.0,       // 次の獲物を探すまでの間
+      slipperRadius: 3.2,
+      sprayRadius: 5.5,
+      sprayThreshold: 5,   // これ以上固まっていたらスプレーを使う（普段はスリッパ）
+      approachTimeout: 7,  // 追いつけなければ諦めて攻撃
+    },
 
     // 家蜘蛛：小さくて速い捕食者。家具の上まで追ってくるので高所も安全ではない。
     // feedTime … 1匹捕らえるとその場で食事に入り、その間は動かない。
@@ -88,12 +105,8 @@ export const CONFIG = {
       wanderInterval: 2.0, climbRate: 9, feedTime: 6.0,
     },
 
-    // 家主のスリッパ：足元に寄ったゴキを叩き潰す。影が落ちてから一拍おいて着弾。
-    slipper: { interval: 14, warning: 1.1, radius: 2.8, reach: 14 },
   },
 
-  // 毒餌（ブラックキャップ）。餌に見せかけた死。数と復活時間だけ持つ。
-  poison: { count: 3, respawnDelay: 20 },
 
   // 仰向けにひっくり返って消えるまでの秒数。
   death: { flipTime: 1.2 },
@@ -165,7 +178,7 @@ export const ITEMS = {
 //   キッチン ── 玄関 ── クローゼット
 //   ダイニング ─ リビング ─ ワークスペース
 //   ────────  ベランダ  ────────
-export const FURNITURE = [
+const RAW_FURNITURE = [
   // --- キッチン（左上）---
   { kind: 'fridge',   style: 'cabinet', x: -27.0, z: -14.1, w: 9.6,  d: 9.9,  h: 16, color: 0xe8e8e8, accent: 0xb0b0b0 , climb: false },
   { kind: 'counter',  style: 'counter', x: -13.3, z: -15.1, w: 13.5, d: 4.6,  h: 8,  color: 0xf2f2f2, accent: 0xc8ccd0 },
@@ -200,18 +213,18 @@ export const FURNITURE = [
 ];
 
 // 室内の仕切り壁（外周壁は house の寸法から自動生成）。
-export const PARTITIONS = [
+const RAW_PARTITIONS = [
   // 玄関とリビングを仕切る壁
   { x: 0.7, z: -14.1, w: 1.3, d: 12.9 },
 ];
 
 // ベランダとの段差（低いので歩いて越えられる＝サッシの敷居）
-export const SILLS = [
+const RAW_SILLS = [
   { x: -11.0, z: 14.6, w: 32.0, d: 1.2, h: 1.6 },
 ];
 
 // 床の色分け（当たり判定なし・見た目だけ）。shape は 'rect' か 'circle'。
-export const FLOOR_ZONES = [
+const RAW_FLOOR_ZONES = [
   { shape: 'rect',   x: -16.0, z: -14.5, w: 32.0, d: 13.0, color: 0xe9e4da, name: 'キッチン' },
   { shape: 'rect',   x: 4.5,   z: -14.5, w: 9.0,  d: 13.0, color: 0xd8d2c4, name: '玄関' },
   { shape: 'rect',   x: -11.0, z: 18.0,  w: 32.0, d: 6.0,  color: 0xbdbdbd, name: 'ベランダ' },
@@ -227,9 +240,6 @@ export const FOODS = {
   crumb:  { weight: 4, value: 12, shape: 'crumb',  size: 1.0, color: 0xd9a05b, accent: 0x8a5a2b, label: 'パンくず' },
   noodle: { weight: 3, value: 18, shape: 'noodle', size: 1.1, color: 0xffe08a, accent: 0xff9f1c, label: '麺' },
   candy:  { weight: 2, value: 24, shape: 'candy',  size: 1.0, color: 0xff6b6b, accent: 0x6c5ce7, label: 'あめ玉' },
-  // 毒餌。weight 0 ＝ 通常の抽選には出ず、毒餌枠としてだけ配置される。
-  // 見た目は明らかに「容器」。知っていれば避けられる＝理不尽ではなく駆け引きにする。
-  poison: { weight: 0, value: 0,  shape: 'poison', size: 1.3, color: 0x2b2b2b, accent: 0x7d3cff, label: '毒餌' },
 };
 
 // 特大の人間（障害物として絡む）。sitting=座り姿勢のおばあちゃん、standing=立ちの家主。
@@ -238,3 +248,15 @@ export const GIANTS = {
   homeowner: { pose: 'standing', height: 20, radius: 4.5, skin: 0xffcc99, clothes: 0x3d7ea6, hair: 0x2b2b2b },
   grandma:   { pose: 'sitting',  height: 14, radius: 6.0, skin: 0xffddc0, clothes: 0xc75d7a, hair: 0xf0f0f0 },
 };
+
+// ===== 間取りの拡大 =====
+// 間取り図から起こした座標はそのまま残し、配置だけを一律で広げる。
+// 家具の「大きさ」は変えないので、広がるのは通路＝動けるスペースだけ。
+const SPREAD = 1.22;
+const spreadPos = (o) => ({ ...o, x: o.x * SPREAD, z: o.z * SPREAD });
+const spreadAll = (o) => ({ ...o, x: o.x * SPREAD, z: o.z * SPREAD, w: o.w * SPREAD, d: o.d * SPREAD });
+
+export const FURNITURE = RAW_FURNITURE.map(spreadPos);   // 位置だけ広げる
+export const PARTITIONS = RAW_PARTITIONS.map(spreadAll); // 壁は長さも伸ばす
+export const SILLS = RAW_SILLS.map((o) => ({ ...o, x: o.x * SPREAD, z: o.z * SPREAD, w: o.w * SPREAD }));
+export const FLOOR_ZONES = RAW_FLOOR_ZONES.map(spreadAll);

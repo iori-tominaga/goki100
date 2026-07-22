@@ -264,22 +264,76 @@ function createGiantMesh(kind) {
   if (spec.pose === 'standing') {
     const legH = H * 0.42, torsoH = H * 0.4, headR = H * 0.11;
     const shoeMat = new THREE.MeshStandardMaterial({ color: 0x4a3728, roughness: 0.8 });
+    // 脚も股関節を支点にして歩行スイングできるようにする
+    const legMeshes = [];
     for (const sx of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx * H * 0.1, legH, 0);
       const leg = new THREE.Mesh(new THREE.BoxGeometry(H * 0.13, legH, H * 0.15), clothMat);
-      leg.position.set(sx * H * 0.1, legH / 2, 0);
-      leg.castShadow = true; g.add(leg);
+      leg.position.y = -legH / 2;
+      leg.castShadow = true; pivot.add(leg);
       const shoe = new THREE.Mesh(new THREE.BoxGeometry(H * 0.14, H * 0.05, H * 0.22), shoeMat);
-      shoe.position.set(sx * H * 0.1, H * 0.025, H * 0.05); g.add(shoe);
+      shoe.position.set(0, -legH + H * 0.025, H * 0.05); pivot.add(shoe);
+      g.add(pivot);
+      legMeshes.push(pivot);
     }
     const torso = new THREE.Mesh(new THREE.BoxGeometry(H * 0.36, torsoH, H * 0.22), clothMat);
     torso.position.y = legH + torsoH / 2; torso.castShadow = true; g.add(torso);
+
+    // 腕は肩を支点にした Group にする（振り上げ→振り下ろしを見せるため）
+    const arms = {};
     for (const sx of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx * H * 0.24, legH + torsoH * 0.98, 0);
       const arm = new THREE.Mesh(new THREE.BoxGeometry(H * 0.09, torsoH * 0.95, H * 0.11), clothMat);
-      arm.position.set(sx * H * 0.24, legH + torsoH * 0.55, 0);
-      arm.castShadow = true; g.add(arm);
+      arm.position.y = -torsoH * 0.475;
+      arm.castShadow = true; pivot.add(arm);
       const hand = new THREE.Mesh(new THREE.BoxGeometry(H * 0.1, H * 0.08, H * 0.11), skinMat);
-      hand.position.set(sx * H * 0.25, legH + torsoH * 0.05, 0); g.add(hand);
+      hand.position.y = -torsoH * 0.95;
+      pivot.add(hand);
+      g.add(pivot);
+      arms[sx > 0 ? 'right' : 'left'] = pivot;
+
+      if (sx > 0) {
+        // 右手にスリッパ（叩く方）
+        const slipper = new THREE.Group();
+        const sole = new THREE.Mesh(
+          new THREE.BoxGeometry(H * 0.16, H * 0.04, H * 0.3),
+          new THREE.MeshStandardMaterial({ color: 0x5b7fd4, roughness: 0.8 })
+        );
+        sole.castShadow = true;
+        slipper.add(sole);
+        const strap = new THREE.Mesh(
+          new THREE.BoxGeometry(H * 0.16, H * 0.07, H * 0.06),
+          new THREE.MeshStandardMaterial({ color: 0x3f5ea8, roughness: 0.8 })
+        );
+        strap.position.set(0, H * 0.04, H * 0.07);
+        slipper.add(strap);
+        slipper.position.y = -torsoH * 1.05;
+        pivot.add(slipper);
+        arms.slipper = slipper;
+      } else {
+        // 左手にゴキジェットの缶（噴射する方）
+        const can = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(H * 0.05, H * 0.05, H * 0.22, 10),
+          new THREE.MeshStandardMaterial({ color: 0xd94f3a, roughness: 0.4, metalness: 0.3 })
+        );
+        body.castShadow = true;
+        can.add(body);
+        const cap = new THREE.Mesh(
+          new THREE.CylinderGeometry(H * 0.03, H * 0.03, H * 0.05, 8),
+          new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.5 })
+        );
+        cap.position.y = H * 0.13;
+        can.add(cap);
+        can.position.y = -torsoH * 1.05;
+        pivot.add(can);
+        arms.can = can;
+      }
     }
+    g.userData.arms = arms;
+    g.userData.legs = legMeshes;
     const head = new THREE.Group();
     const skull = new THREE.Mesh(new THREE.BoxGeometry(headR * 2, headR * 2.2, headR * 1.9), skinMat);
     skull.castShadow = true; head.add(skull);
@@ -689,24 +743,6 @@ function createSpiderMesh() {
   return g;
 }
 
-// 家主のスリッパ：叩きつける瞬間だけ現れる
-function createSlipperMesh() {
-  const g = new THREE.Group();
-  const R = CONFIG.hazards.slipper.radius;
-  const mat = new THREE.MeshStandardMaterial({ color: 0x5b7fd4, roughness: 0.8 });
-  const sole = new THREE.Mesh(new THREE.BoxGeometry(R * 1.5, R * 0.35, R * 2.4), mat);
-  sole.castShadow = true;
-  g.add(sole);
-  const strap = new THREE.Mesh(
-    new THREE.BoxGeometry(R * 1.5, R * 0.7, R * 0.5),
-    new THREE.MeshStandardMaterial({ color: 0x3f5ea8, roughness: 0.8 })
-  );
-  strap.position.set(0, R * 0.4, R * 0.6);
-  g.add(strap);
-  g.visible = false;
-  return g;
-}
-
 export class ThreeRenderer extends Renderer {
   init(container, state) {
     this.width = container.clientWidth;
@@ -958,14 +994,57 @@ export class ThreeRenderer extends Renderer {
     }
   }
 
-  // 特大の人間（障害物）。塊魂風の簡素なブロック体。
+  // 特大の人間（障害物）。家主は歩いて攻撃するのでメッシュを保持しておく。
   _buildGiants(state) {
+    this.giantMeshes = new Map();
     for (const g of state.giants) {
       const mesh = createGiantMesh(g.kind);
       mesh.position.set(g.x, 0, g.z);
       mesh.rotation.y = g.rotY;
       this.scene.add(mesh);
+      this.giantMeshes.set(g.id, mesh);
     }
+  }
+
+  // 家主の動作を見せる：歩く・振り上げる・振り下ろす。
+  // 「攻撃が人間から出ている」と分かることが、この演出の目的。
+  _syncOwner(state, dt) {
+    const g = state.ownerGiant;
+    if (!g) return;
+    const mesh = this.giantMeshes.get(g.id);
+    if (!mesh) return;
+    const o = state.owner;
+
+    mesh.position.set(g.x, 0, g.z);
+    // 向きは滑らかに追従（急に振り向くと不自然）
+    const target = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, g.rotY, 0));
+    mesh.quaternion.slerp(target, Math.min(1, 6 * dt));
+
+    const arms = mesh.userData.arms;
+    const legs = mesh.userData.legs;
+    if (!arms) return;
+
+    // 歩行：脚を前後に振る
+    this.ownerWalkPhase = (this.ownerWalkPhase || 0) + (o.walking ? dt * 5 : 0);
+    const swing = o.walking ? Math.sin(this.ownerWalkPhase) * 0.5 : 0;
+    if (legs) { legs[0].rotation.x = swing; legs[1].rotation.x = -swing; }
+
+    // 攻撃：狙う側の腕を振り上げ（anim 0→1）、strike で一気に振り下ろす
+    const useRight = o.weapon === 'slipper';
+    const active = useRight ? arms.right : arms.left;
+    const idle = useRight ? arms.left : arms.right;
+
+    let angle = 0;
+    if (o.phase === 'raise') angle = -o.anim * 2.4;          // 頭上へ振り上げる
+    else if (o.phase === 'strike') angle = 0.9;              // 振り下ろした状態
+    else if (o.phase === 'approach') angle = -0.25;          // 構えながら歩く
+
+    active.rotation.x = THREE.MathUtils.lerp(active.rotation.x, angle, Math.min(1, 18 * dt));
+    idle.rotation.x = THREE.MathUtils.lerp(idle.rotation.x, o.walking ? -swing * 0.6 : 0, Math.min(1, 10 * dt));
+
+    // 手に持つ武器は使う方だけ見せる
+    if (arms.slipper) arms.slipper.visible = useRight;
+    if (arms.can) arms.can.visible = !useRight;
   }
 
   // 危険（ホイホイ・猫）のメッシュを構築
@@ -987,27 +1066,15 @@ export class ThreeRenderer extends Renderer {
     this.spiderMesh = createSpiderMesh();
     this.scene.add(this.spiderMesh);
 
-    // スリッパ：予告中は影だけ、着弾の瞬間に振り下ろす
-    this.slipperMesh = createSlipperMesh();
-    this.scene.add(this.slipperMesh);
-    this.slipperAnim = 0;
-    this.slipperWarnMesh = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 24),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
-    );
-    this.slipperWarnMesh.rotation.x = -Math.PI / 2;
-    this.slipperWarnMesh.visible = false;
-    this.scene.add(this.slipperWarnMesh);
-
-    // ゴキジェットの予告リング（噴射前だけ表示）
-    this.sprayWarnMesh = new THREE.Mesh(
-      new THREE.RingGeometry(1, 1.12, 40),
+    // 家主が狙っている場所を示すマーカー
+    this.aimMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.86, 1, 32),
       new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
     );
-    this.sprayWarnMesh.rotation.x = -Math.PI / 2;
-    this.sprayWarnMesh.position.y = 0.05;
-    this.sprayWarnMesh.visible = false;
-    this.scene.add(this.sprayWarnMesh);
+    this.aimMesh.rotation.x = -Math.PI / 2;
+    this.aimMesh.position.y = 0.06;
+    this.aimMesh.visible = false;
+    this.scene.add(this.aimMesh);
   }
 
   // ホイホイ：位置（交換で移動する）と、捕獲数に応じた「詰まり具合」を反映
@@ -1056,38 +1123,23 @@ export class ThreeRenderer extends Renderer {
       l.pivot.rotation.x = Math.sin(sp.legPhase + l.phase) * 0.35;
     }
 
-    // スリッパ：予告中は足元に影、着弾したら振り下ろす
-    const sl = state.slipper;
-    const warning = sl.phase === 'warn';
-    this.slipperWarnMesh.visible = warning;
-    if (warning) {
-      const r = CONFIG.hazards.slipper.radius;
-      this.slipperWarnMesh.position.set(sl.x, 0.08, sl.z);
-      this.slipperWarnMesh.scale.setScalar(r * (0.6 + 0.4 * Math.abs(Math.sin(this.elapsed * 6))));
-    }
-    if (this.slipperAnim > 0) {
-      this.slipperAnim -= dt;
-      const k = Math.max(0, this.slipperAnim / 0.35);
-      this.slipperMesh.visible = true;
-      this.slipperMesh.position.set(sl.x, 1 + k * k * 26, sl.z); // 上から落ちてくる
-      this.slipperMesh.rotation.z = k * 0.6;
-    } else {
-      this.slipperMesh.visible = false;
-    }
+    // 家主が狙っている場所を示すマーカーは _syncAim が担当する
   }
 
-  // ゴキジェットの予告リング（半径いっぱいに広がって危険域を示す）
-  _syncSpray(state) {
-    const sp = state.spray;
-    const warning = sp.phase === 'warn';
-    this.sprayWarnMesh.visible = warning;
-    if (!warning) return;
-    const r = CONFIG.hazards.spray.radius;
-    this.sprayWarnMesh.position.set(sp.x, 0.05, sp.z);
-    // 点滅させて「来るぞ」を伝える
-    const blink = 0.45 + 0.45 * Math.abs(Math.sin(this.elapsed * 12));
-    this.sprayWarnMesh.material.opacity = blink;
-    this.sprayWarnMesh.scale.set(r, r, r);
+  // 家主の狙点（腕の振り上げと合わせて予告として機能させる）
+  _syncAim(state) {
+    const o = state.owner;
+    const show = o.phase === 'raise' || o.phase === 'approach';
+    this.aimMesh.visible = show;
+    if (!show) return;
+    const c = CONFIG.hazards.owner;
+    const r = o.weapon === 'spray' ? c.sprayRadius : c.slipperRadius;
+    this.aimMesh.position.set(o.targetX, 0.06, o.targetZ);
+    this.aimMesh.scale.setScalar(r);
+    // 振り上げが進むほど激しく点滅（もうすぐ来る合図）
+    this.aimMesh.material.opacity = o.phase === 'raise'
+      ? 0.5 + 0.5 * Math.abs(Math.sin(this.elapsed * 14))
+      : 0.3;
   }
 
   // state.roaches と実メッシュを同期（増減対応）
@@ -1139,12 +1191,11 @@ export class ThreeRenderer extends Renderer {
         case 'stick':   this._addRing(ev, 0x1a1a1a, 1.6, 0.5); break;   // 粘着した瞬間
         case 'death':   this._addRing(ev, 0xffffff, 3.0, 0.6); break;   // 昇天の煙
         case 'swipe':   this._addRing(ev, 0xff6b6b, 4.0, 0.4); break;   // 猫パンチ
-        case 'spray':   this._addRing(ev, 0xb8ff5b, CONFIG.hazards.spray.radius * 1.6, 0.9); break;
         case 'takeover':this._addRing(ev, 0x4ecdc4, 6.0, 0.9); break;   // 乗り移り先を教える
-        case 'poison':  this._addRing(ev, 0x7d3cff, 2.6, 0.7); break;   // 毒餌を食べた
         case 'roombaBump': this._addRing(ev, 0xc0c4cc, 2.0, 0.35); break; // ルンバが壁で反転
-        case 'slipper': this._addRing(ev, 0x5b7fd4, CONFIG.hazards.slipper.radius * 1.4, 0.5);
-                        this.slipperAnim = 0.35; break;                 // スリッパ着弾
+        case 'ownerNotice': this._addRing(ev, 0xff9f1c, 3.0, 0.6); break;           // 家主が気づいた
+        case 'ownerSlam':  this._addRing(ev, 0x5b7fd4, ev.radius * 1.3, 0.5); break; // スリッパ着弾
+        case 'ownerSpray': this._addRing(ev, 0xb8ff5b, ev.radius * 1.5, 0.9); break; // 噴射
       }
     }
   }
@@ -1186,7 +1237,8 @@ export class ThreeRenderer extends Renderer {
     this._syncTraps(state);
     this._syncCat(state, dt);
     this._syncNewHazards(state, dt);
-    this._syncSpray(state);
+    this._syncAim(state);
+    this._syncOwner(state, dt);
     this._consumeEvents(state);
     this._updateEffects(dt);
 

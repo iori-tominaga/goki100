@@ -201,6 +201,11 @@ export class GameState {
         GIANTS[g.kind].height * 0.9, false
       )),
     ];
+
+    // 家主は歩き回るので、本体と当たり判定の箱を後から動かせるよう覚えておく
+    this.ownerGiant = this.giants.find((g) => g.kind === 'homeowner');
+    const ownerIndex = this.giants.indexOf(this.ownerGiant);
+    this.ownerObstacle = structure[structure.length - this.giants.length + ownerIndex];
     this.props = generateProps(structure);
 
     // 箱の障害物（登り・立ち・押し出しに使う）。top と climbable を持つ。
@@ -244,16 +249,17 @@ export class GameState {
       id: nextId++, x: CONFIG.house.width * 0.35, z: CONFIG.house.depth * 0.35, y: 0,
       angle: 0, wanderAngle: 0, wanderTimer: 0, chasing: false, legPhase: 0, feed: 0,
     };
-    // 家主のスリッパ：予告 → 着弾
-    this.slipper = { phase: 'idle', timer: CONFIG.hazards.slipper.interval, x: 0, z: 0 };
+    // 家主：探す → 近づく → 振り上げる → 叩く、の行動状態
+    this.owner = {
+      phase: 'rest', timer: CONFIG.hazards.owner.restTime,
+      targetX: 0, targetZ: 0, weapon: 'slipper', anim: 0, walking: false,
+    };
 
     // 飼い猫：徘徊しつつゴキを狩る
     this.cat = {
       id: nextId++, x: CONFIG.house.width * 0.3, z: -CONFIG.house.depth * 0.3,
       angle: 0, wanderAngle: 0, wanderTimer: 0, swipeCd: 0, chasing: false, swipeAnim: 0,
     };
-    // 家主のゴキジェット：予告 → 噴射 のサイクル
-    this.spray = { phase: 'idle', timer: CONFIG.hazards.spray.interval, x: 0, z: 0 };
 
     // フロアに散らばる餌。拾うと非アクティブ化し、少し後に別地点へ復活する。
     this.foods = [];
@@ -261,15 +267,7 @@ export class GameState {
       const spot = this._randomFoodSpot();
       this.foods.push({
         id: nextId++, kind: pickFoodKind(), x: spot.x, y: 0, z: spot.z,
-        active: true, timer: 0, phase: Math.random() * Math.PI * 2, poison: false,
-      });
-    }
-    // 毒餌（ブラックキャップ）。餌と同じ仕組みに乗せるが、食べると死ぬ。
-    for (let i = 0; i < CONFIG.poison.count; i++) {
-      const spot = this._randomFoodSpot(CONFIG.hazards.hoihoi.keepFromSpawn);
-      this.foods.push({
-        id: nextId++, kind: 'poison', x: spot.x, y: 0, z: spot.z,
-        active: true, timer: 0, phase: Math.random() * Math.PI * 2, poison: true,
+        active: true, timer: 0, phase: Math.random() * Math.PI * 2,
       });
     }
 
@@ -328,8 +326,7 @@ export class GameState {
     this._updateCat(dt);
     this._updateRoomba(dt);
     this._updateSpider(dt);
-    this._updateSlipper(dt);
-    this._updateSpray(dt);
+    this._updateOwner(dt);
     this._updateDying(dt);
   }
 
@@ -592,64 +589,99 @@ export class GameState {
     }
   }
 
-  // --- 家主のスリッパ：足元に寄ったゴキを叩き潰す ---
-  _updateSlipper(dt) {
-    const c = CONFIG.hazards.slipper;
-    const sl = this.slipper;
-    const owner = this.giants.find((g) => g.kind === 'homeowner');
-    if (!owner) return;
+  // --- 家主：探す → 歩いて近づく → 振り上げる → 叩く／噴射する ---
+  //
+  // 攻撃を「人間の動作」として見せるための状態機械。
+  // どこからともなく攻撃が降ってくると理不尽なだけだが、
+  // 巨大な人間がこちらへ歩いてきて腕を振り上げれば、それは恐怖になる。
+  _updateOwner(dt) {
+    const c = CONFIG.hazards.owner;
+    const g = this.ownerGiant;
+    const o = this.owner;
+    if (!g) return;
 
-    sl.timer -= dt;
-    if (sl.timer > 0) return;
+    o.timer -= dt;
+    o.walking = false;
 
-    if (sl.phase === 'idle') {
-      // 家主の周囲に居るゴキだけが狙われる（部屋の反対側までは届かない）
-      const near = this.roaches.filter((r) =>
-        !r.dying && !r.preview && Math.hypot(r.x - owner.x, r.z - owner.z) < c.reach);
-      if (!near.length) { sl.timer = 1.5; return; } // 誰も居なければ少し待つ
-      const mark = near[Math.floor(Math.random() * near.length)];
-      sl.x = mark.x; sl.z = mark.z;
-      sl.phase = 'warn';
-      sl.timer = c.warning;
-      this.events.push({ type: 'slipperWarn', x: sl.x, y: 0, z: sl.z, radius: c.radius });
-      return;
+    switch (o.phase) {
+      case 'rest': {
+        if (o.timer > 0) break;
+        // 一番ゴキが固まっているあたりを狙う（群れていると危ない）
+        const list = this.roaches.filter((r) => !r.dying && !r.preview);
+        let mark = null, bestCount = -1;
+        for (const r of list) {
+          if (Math.hypot(r.x - g.x, r.z - g.z) > c.sight) continue;
+          let n = 0;
+          for (const q of list) if (Math.hypot(q.x - r.x, q.z - r.z) < c.sprayRadius) n++;
+          if (n > bestCount) { bestCount = n; mark = r; }
+        }
+        if (!mark) { o.timer = 1.5; break; } // 誰も見当たらなければ少し待つ
+        o.targetX = mark.x; o.targetZ = mark.z;
+        o.weapon = bestCount >= c.sprayThreshold ? 'spray' : 'slipper';
+        o.phase = 'approach';
+        o.timer = c.approachTimeout;
+        this.events.push({ type: 'ownerNotice', x: g.x, y: 0, z: g.z, weapon: o.weapon });
+        break;
+      }
+
+      case 'approach': {
+        const dx = o.targetX - g.x, dz = o.targetZ - g.z;
+        const d = Math.hypot(dx, dz);
+        g.rotY = Math.atan2(dx, dz); // 常に獲物の方を向く
+        if (d > c.stopDistance && o.timer > 0) {
+          const step = Math.min(c.walkSpeed * dt, d - c.stopDistance);
+          const boundX = CONFIG.house.width / 2 - g.radius;
+          const boundZ = CONFIG.house.depth / 2 - g.radius;
+          g.x = Math.max(-boundX, Math.min(boundX, g.x + (dx / d) * step));
+          g.z = Math.max(-boundZ, Math.min(boundZ, g.z + (dz / d) * step));
+          o.walking = true;
+          break;
+        }
+        o.phase = 'raise';
+        o.timer = c.raiseTime;
+        this.events.push({
+          type: 'ownerRaise', x: o.targetX, y: 0, z: o.targetZ, weapon: o.weapon,
+          radius: o.weapon === 'spray' ? c.sprayRadius : c.slipperRadius,
+        });
+        break;
+      }
+
+      case 'raise': {
+        o.anim = 1 - Math.max(0, o.timer / c.raiseTime); // 0→1 で腕が上がる
+        if (o.timer > 0) break;
+        o.phase = 'strike';
+        o.timer = c.strikeTime;
+        const radius = o.weapon === 'spray' ? c.sprayRadius : c.slipperRadius;
+        this.events.push({
+          type: o.weapon === 'spray' ? 'ownerSpray' : 'ownerSlam',
+          x: o.targetX, y: 0, z: o.targetZ, radius,
+        });
+        for (const r of this.roaches) {
+          if (r.dying || r.preview) continue;
+          // スリッパは床を叩くので、家具の上に居れば当たらない
+          if (o.weapon === 'slipper' && r.y > 2) continue;
+          if (Math.hypot(r.x - o.targetX, r.z - o.targetZ) < radius) {
+            this._kill(r, o.weapon === 'spray' ? 'spray' : 'slipper');
+          }
+        }
+        break;
+      }
+
+      case 'strike':
+        o.anim = 0;
+        if (o.timer <= 0) { o.phase = 'recover'; o.timer = c.recoverTime; }
+        break;
+
+      default: // recover
+        if (o.timer <= 0) { o.phase = 'rest'; o.timer = c.restTime; }
+        break;
     }
 
-    sl.phase = 'idle';
-    sl.timer = c.interval;
-    this.events.push({ type: 'slipper', x: sl.x, y: 0, z: sl.z, radius: c.radius });
-    for (const r of this.roaches) {
-      if (r.dying || r.preview || r.y > 2) continue; // 高い所に居れば当たらない
-      if (Math.hypot(r.x - sl.x, r.z - sl.z) < c.radius) this._kill(r, 'slipper');
-    }
-  }
-
-  // --- 家主のゴキジェット：予告 → 噴射。狙いはゴキが居るあたり（理不尽）---
-  _updateSpray(dt) {
-    const s = CONFIG.hazards.spray;
-    const sp = this.spray;
-    sp.timer -= dt;
-    if (sp.timer > 0) return;
-
-    if (sp.phase === 'idle') {
-      // 生きているゴキを1匹選び、その周辺を狙う
-      const alive = this.roaches.filter((r) => !r.dying && !r.preview);
-      if (!alive.length) { sp.timer = s.interval; return; }
-      const mark = alive[Math.floor(Math.random() * alive.length)];
-      sp.x = mark.x; sp.z = mark.z;
-      sp.phase = 'warn';
-      sp.timer = s.warning;
-      this.events.push({ type: 'sprayWarn', x: sp.x, y: 0, z: sp.z, radius: s.radius });
-      return;
-    }
-
-    // 噴射：範囲内は高さに関係なく全滅（壁を登って逃げても無駄）
-    sp.phase = 'idle';
-    sp.timer = s.interval;
-    this.events.push({ type: 'spray', x: sp.x, y: 0, z: sp.z, radius: s.radius });
-    for (const r of this.roaches) {
-      if (r.dying || r.preview) continue;
-      if (Math.hypot(r.x - sp.x, r.z - sp.z) < s.radius) this._kill(r, 'spray');
+    // 家主は歩くので、当たり判定の箱も一緒に動かす
+    if (this.ownerObstacle) {
+      this.ownerObstacle.x = g.x;
+      this.ownerObstacle.z = g.z;
+      this.ownerObstacle.rotY = g.rotY;
     }
   }
 
@@ -666,7 +698,6 @@ export class GameState {
       let best = a.sightRadius, tx = 0, tz = 0, seeking = false;
       for (const f of this.foods) {
         if (!f.active) continue;
-        if (f.poison) continue; // 毒餌は本能で避ける（誤って踏めば死ぬのは変わらない）
         const d = Math.hypot(f.x - r.x, f.z - r.z);
         if (d < best) { best = d; tx = f.x; tz = f.z; seeking = true; }
       }
@@ -752,10 +783,8 @@ export class GameState {
       if (!f.active) {
         f.timer -= dt;
         if (f.timer <= 0) {
-          // 毒餌は毒餌のまま別の場所へ（家主が置き直すイメージ）
-          const spot = this._randomFoodSpot(f.poison ? CONFIG.hazards.hoihoi.keepFromSpawn : 0);
-          f.x = spot.x; f.z = spot.z; f.active = true;
-          if (!f.poison) f.kind = pickFoodKind();
+          const spot = this._randomFoodSpot();
+          f.x = spot.x; f.z = spot.z; f.kind = pickFoodKind(); f.active = true;
         }
         continue;
       }
@@ -771,15 +800,6 @@ export class GameState {
   }
 
   _collect(food, roach) {
-    // 毒餌：ゲージは増えず、食べた個体が死ぬ
-    if (food.poison) {
-      food.active = false;
-      food.timer = CONFIG.poison.respawnDelay;
-      this.events.push({ type: 'poison', x: food.x, y: food.y, z: food.z });
-      this._kill(roach, 'poison');
-      return;
-    }
-
     food.active = false;
     food.timer = CONFIG.food.respawnDelay;
     this.gauge += FOODS[food.kind].value;
