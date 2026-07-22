@@ -180,9 +180,11 @@ html, body {
   opacity: 0;
   transition: opacity 0.12s ease;
 }
+/* 台座はつまみより十分大きくすること。
+   （つまみの可動域は input.js が「台座の半径 − つまみの半径」で自動計算する） */
 #stick-base {
-  width: 120px;
-  height: 120px;
+  width: 140px;
+  height: 140px;
   background: rgba(255, 255, 255, 0.22);
   border: 3px solid rgba(255, 255, 255, 0.6);
 }

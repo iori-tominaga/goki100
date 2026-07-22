@@ -77,7 +77,7 @@ function checkResult() {
 }
 
 // デバッグ用フック（描画検証で使用。ゲーム挙動には影響しない）
-window.__goki = { state, renderer };
+window.__goki = { state, renderer, input };
 
 // 経過時間ベースのゲームループ（フレームレート非依存）
 let last = performance.now();
