@@ -59,9 +59,13 @@ document.getElementById('result-retry').addEventListener('click', () => location
 let resultShown = false;
 
 function checkResult() {
-  if (resultShown) return;
   const won = state.count >= state.target;
-  if (!state.gameOver && !won) return;
+  // 決着していなければ引っ込める（復帰した場合に出しっぱなしにしない）
+  if (!state.gameOver && !won) {
+    if (resultShown) { resultEl.hidden = true; resultShown = false; }
+    return;
+  }
+  if (resultShown) return;
 
   resultShown = true;
   document.getElementById('result-icon').textContent = won ? '🎉' : '🪳';

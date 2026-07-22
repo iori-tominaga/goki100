@@ -139,7 +139,7 @@ function buildWalls() {
 function generateProps(blockers) {
   const props = [];
   const { width, depth } = CONFIG.house;
-  const count = 10;
+  const count = 4; // 障害物が多すぎたので絞る（間取りの家具が主役）
 
   let attempts = 0;
   while (props.length < count && attempts < 400) {
@@ -169,8 +169,9 @@ function generateProps(blockers) {
 // 特大の人間（障害物・登れない）。間取りに合わせた定位置に立たせる／座らせる。
 function generateGiants() {
   return [
-    { id: nextId++, kind: 'homeowner', x: 6.5, z: -4.0, rotY: Math.PI * 0.75, radius: GIANTS.homeowner.radius },
-    { id: nextId++, kind: 'grandma',   x: -14.5, z: 9.5, rotY: -Math.PI * 0.25, radius: GIANTS.grandma.radius },
+    // 部屋の中央に立たせると動線を塞ぐので、壁際へ寄せてある
+    { id: nextId++, kind: 'homeowner', x: 8.5, z: -8.5, rotY: Math.PI * 0.8, radius: GIANTS.homeowner.radius },
+    { id: nextId++, kind: 'grandma',   x: -28.0, z: -4.0, rotY: -Math.PI * 0.4, radius: GIANTS.grandma.radius },
   ];
 }
 
@@ -188,10 +189,12 @@ export class GameState {
     this.giants = generateGiants();
 
     // 家具・壁を箱の障害物へ。これらを避けて生活小物を散らす。
+    // 「登れる」を絞るのが操作性の要：何にでも張り付くと、歩きたいだけの時に
+    // 勝手に壁面へ吸い付いて邪魔になる。外周壁と大型収納は登れない。
     const structure = [
-      ...this.walls.map((w) => makeBox(w, CONFIG.house.wallHeight, true)),
-      ...this.partitions.map((w) => makeBox(w, CONFIG.house.wallHeight, true)),
-      ...this.furniture.map((f) => makeBox(f, f.h, true)),
+      ...this.walls.map((w) => makeBox(w, CONFIG.house.wallHeight, false)),
+      ...this.partitions.map((w) => makeBox(w, CONFIG.house.wallHeight, false)),
+      ...this.furniture.map((f) => makeBox(f, f.h, f.climb !== false)),
       ...this.sills.map((s) => makeBox(s, s.h, true)),
       ...this.giants.map((g) => makeBox(
         { x: g.x, z: g.z, w: g.radius * 2, d: g.radius * 2, rotY: g.rotY },
@@ -230,6 +233,20 @@ export class GameState {
         filled: 0, refill: 0,
       });
     }
+    // ルンバ：直進 → ぶつかったら向きを変える
+    this.roomba = {
+      id: nextId++, x: -CONFIG.house.width * 0.25, z: CONFIG.house.depth * 0.3,
+      angle: Math.random() * Math.PI * 2, spin: 0, pause: 0,
+      running: true, duty: CONFIG.hazards.roomba.runTime,
+    };
+    // 家蜘蛛：高い所にも登ってくる捕食者
+    this.spider = {
+      id: nextId++, x: CONFIG.house.width * 0.35, z: CONFIG.house.depth * 0.35, y: 0,
+      angle: 0, wanderAngle: 0, wanderTimer: 0, chasing: false, legPhase: 0, feed: 0,
+    };
+    // 家主のスリッパ：予告 → 着弾
+    this.slipper = { phase: 'idle', timer: CONFIG.hazards.slipper.interval, x: 0, z: 0 };
+
     // 飼い猫：徘徊しつつゴキを狩る
     this.cat = {
       id: nextId++, x: CONFIG.house.width * 0.3, z: -CONFIG.house.depth * 0.3,
@@ -244,7 +261,15 @@ export class GameState {
       const spot = this._randomFoodSpot();
       this.foods.push({
         id: nextId++, kind: pickFoodKind(), x: spot.x, y: 0, z: spot.z,
-        active: true, timer: 0, phase: Math.random() * Math.PI * 2,
+        active: true, timer: 0, phase: Math.random() * Math.PI * 2, poison: false,
+      });
+    }
+    // 毒餌（ブラックキャップ）。餌と同じ仕組みに乗せるが、食べると死ぬ。
+    for (let i = 0; i < CONFIG.poison.count; i++) {
+      const spot = this._randomFoodSpot(CONFIG.hazards.hoihoi.keepFromSpawn);
+      this.foods.push({
+        id: nextId++, kind: 'poison', x: spot.x, y: 0, z: spot.z,
+        active: true, timer: 0, phase: Math.random() * Math.PI * 2, poison: true,
       });
     }
 
@@ -301,6 +326,9 @@ export class GameState {
     this._updateFoods(dt);
     this._updateTraps(dt);
     this._updateCat(dt);
+    this._updateRoomba(dt);
+    this._updateSpider(dt);
+    this._updateSlipper(dt);
     this._updateSpray(dt);
     this._updateDying(dt);
   }
@@ -445,6 +473,157 @@ export class GameState {
     }
   }
 
+  // --- ルンバ：直進 → ぶつかったら向きを変える。進路上のゴキを吸い込む ---
+  // 動きが単純で読めるからこそ「避ける」遊びになる。追尾はさせない。
+  _updateRoomba(dt) {
+    const c = CONFIG.hazards.roomba;
+    const rb = this.roomba;
+
+    // 稼働と休憩を切り替える（休憩中は完全に無害）
+    rb.duty -= dt;
+    if (rb.duty <= 0) {
+      rb.running = !rb.running;
+      rb.duty = rb.running ? c.runTime : c.restTime;
+      this.events.push({ type: rb.running ? 'roombaStart' : 'roombaStop', x: rb.x, y: 0, z: rb.z });
+    }
+    if (!rb.running) return;
+
+    if (rb.pause > 0) {          // 方向転換中はその場で回る
+      rb.pause -= dt;
+      rb.angle += rb.spin * dt;
+      return;
+    }
+
+    const dirX = Math.sin(rb.angle), dirZ = Math.cos(rb.angle);
+    let nx = rb.x + dirX * c.speed * dt;
+    let nz = rb.z + dirZ * c.speed * dt;
+
+    // 壁・背の高い家具にぶつかったら向きを変える（本物のバンパーと同じ挙動）
+    let bumped = false;
+    for (const o of this.obstacles) {
+      if (o.top < 3) continue;   // 低いものは乗り越えていく体で無視
+      if (boxResolve(o, nx, nz, c.radius)) { bumped = true; break; }
+    }
+    const boundX = CONFIG.house.width / 2 - c.radius;
+    const boundZ = CONFIG.house.depth / 2 - c.radius;
+    if (nx < -boundX || nx > boundX || nz < -boundZ || nz > boundZ) bumped = true;
+
+    if (bumped) {
+      rb.pause = c.turnPause;
+      rb.spin = (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 2);
+      this.events.push({ type: 'roombaBump', x: rb.x, y: 0, z: rb.z });
+      return;
+    }
+    rb.x = nx; rb.z = nz;
+
+    // 吸い込み：床に居るゴキを巻き込む
+    for (const r of this.roaches) {
+      if (r.dying || r.preview || r.y > 1.2) continue;
+      if (Math.hypot(r.x - rb.x, r.z - rb.z) < c.killRadius) this._kill(r, 'roomba');
+    }
+  }
+
+  // --- 家蜘蛛：素早く追う小型の捕食者。家具の上まで登ってくる ---
+  _updateSpider(dt) {
+    const c = CONFIG.hazards.spider;
+    const sp = this.spider;
+
+    // 食事中はその場で停止（狩りっぱなしを防ぐ休憩時間）
+    if (sp.feed > 0) {
+      sp.feed -= dt;
+      sp.chasing = false;
+      sp.legPhase += dt * 3;
+      return;
+    }
+    sp.legPhase += dt * 12;
+
+    // 高さを問わず一番近いゴキを狙う（＝高所へ逃げても安全ではない）
+    let best = c.sightRadius, target = null;
+    for (const r of this.roaches) {
+      if (r.dying || r.preview) continue;
+      const d = Math.hypot(r.x - sp.x, r.z - sp.z);
+      if (d < best) { best = d; target = r; }
+    }
+    sp.chasing = !!target;
+
+    let dirX, dirZ;
+    if (target) {
+      const d = Math.max(1e-4, best);
+      dirX = (target.x - sp.x) / d; dirZ = (target.z - sp.z) / d;
+    } else {
+      sp.wanderTimer -= dt;
+      if (sp.wanderTimer <= 0) {
+        sp.wanderTimer = c.wanderInterval * (0.5 + Math.random());
+        sp.wanderAngle += (Math.random() * 2 - 1) * 1.6;
+      }
+      const edgeX = CONFIG.house.width / 2 - 4, edgeZ = CONFIG.house.depth / 2 - 4;
+      if (Math.abs(sp.x) > edgeX || Math.abs(sp.z) > edgeZ) {
+        sp.wanderAngle = Math.atan2(-sp.x, -sp.z) + (Math.random() - 0.5);
+      }
+      dirX = Math.sin(sp.wanderAngle); dirZ = Math.cos(sp.wanderAngle);
+    }
+
+    sp.angle = Math.atan2(dirX, dirZ);
+    let nx = sp.x + dirX * c.speed * dt;
+    let nz = sp.z + dirZ * c.speed * dt;
+    // 蜘蛛は登れるので、家具は「乗り越える」＝XZ では止まらない。
+    // ただし壁の外へは出ない。
+    const boundX = CONFIG.house.width / 2 - c.radius;
+    const boundZ = CONFIG.house.depth / 2 - c.radius;
+    sp.x = Math.max(-boundX, Math.min(boundX, nx));
+    sp.z = Math.max(-boundZ, Math.min(boundZ, nz));
+
+    // 高さ：足元の家具の天面へ、登る速度で追従する
+    let ground = 0;
+    for (const o of this.obstacles) {
+      if (insideBox(o, sp.x, sp.z)) ground = Math.max(ground, o.top);
+    }
+    const step = c.climbRate * dt;
+    sp.y += Math.max(-step, Math.min(step, ground - sp.y));
+
+    // 触れたゴキを捕食する。1匹捕らえたら食事に入り、しばらく動かない。
+    for (const r of this.roaches) {
+      if (r.dying || r.preview) continue;
+      if (Math.abs(r.y - sp.y) > 2.5) continue;
+      if (Math.hypot(r.x - sp.x, r.z - sp.z) >= c.killRadius + CONFIG.roach.radius) continue;
+      this._kill(r, 'spider');
+      sp.feed = c.feedTime;
+      break;
+    }
+  }
+
+  // --- 家主のスリッパ：足元に寄ったゴキを叩き潰す ---
+  _updateSlipper(dt) {
+    const c = CONFIG.hazards.slipper;
+    const sl = this.slipper;
+    const owner = this.giants.find((g) => g.kind === 'homeowner');
+    if (!owner) return;
+
+    sl.timer -= dt;
+    if (sl.timer > 0) return;
+
+    if (sl.phase === 'idle') {
+      // 家主の周囲に居るゴキだけが狙われる（部屋の反対側までは届かない）
+      const near = this.roaches.filter((r) =>
+        !r.dying && !r.preview && Math.hypot(r.x - owner.x, r.z - owner.z) < c.reach);
+      if (!near.length) { sl.timer = 1.5; return; } // 誰も居なければ少し待つ
+      const mark = near[Math.floor(Math.random() * near.length)];
+      sl.x = mark.x; sl.z = mark.z;
+      sl.phase = 'warn';
+      sl.timer = c.warning;
+      this.events.push({ type: 'slipperWarn', x: sl.x, y: 0, z: sl.z, radius: c.radius });
+      return;
+    }
+
+    sl.phase = 'idle';
+    sl.timer = c.interval;
+    this.events.push({ type: 'slipper', x: sl.x, y: 0, z: sl.z, radius: c.radius });
+    for (const r of this.roaches) {
+      if (r.dying || r.preview || r.y > 2) continue; // 高い所に居れば当たらない
+      if (Math.hypot(r.x - sl.x, r.z - sl.z) < c.radius) this._kill(r, 'slipper');
+    }
+  }
+
   // --- 家主のゴキジェット：予告 → 噴射。狙いはゴキが居るあたり（理不尽）---
   _updateSpray(dt) {
     const s = CONFIG.hazards.spray;
@@ -487,6 +666,7 @@ export class GameState {
       let best = a.sightRadius, tx = 0, tz = 0, seeking = false;
       for (const f of this.foods) {
         if (!f.active) continue;
+        if (f.poison) continue; // 毒餌は本能で避ける（誤って踏めば死ぬのは変わらない）
         const d = Math.hypot(f.x - r.x, f.z - r.z);
         if (d < best) { best = d; tx = f.x; tz = f.z; seeking = true; }
       }
@@ -572,8 +752,10 @@ export class GameState {
       if (!f.active) {
         f.timer -= dt;
         if (f.timer <= 0) {
-          const spot = this._randomFoodSpot();
-          f.x = spot.x; f.z = spot.z; f.kind = pickFoodKind(); f.active = true;
+          // 毒餌は毒餌のまま別の場所へ（家主が置き直すイメージ）
+          const spot = this._randomFoodSpot(f.poison ? CONFIG.hazards.hoihoi.keepFromSpawn : 0);
+          f.x = spot.x; f.z = spot.z; f.active = true;
+          if (!f.poison) f.kind = pickFoodKind();
         }
         continue;
       }
@@ -589,6 +771,15 @@ export class GameState {
   }
 
   _collect(food, roach) {
+    // 毒餌：ゲージは増えず、食べた個体が死ぬ
+    if (food.poison) {
+      food.active = false;
+      food.timer = CONFIG.poison.respawnDelay;
+      this.events.push({ type: 'poison', x: food.x, y: food.y, z: food.z });
+      this._kill(roach, 'poison');
+      return;
+    }
+
     food.active = false;
     food.timer = CONFIG.food.respawnDelay;
     this.gauge += FOODS[food.kind].value;

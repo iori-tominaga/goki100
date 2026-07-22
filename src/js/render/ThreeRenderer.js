@@ -339,6 +339,18 @@ function createFoodMesh(kind) {
       body = new THREE.Mesh(new THREE.TorusGeometry(s * 0.34, s * 0.13, 8, 14), mat);
       body.rotation.x = Math.PI / 2 - 0.3;
       break;
+    case 'poison': { // 毒餌（ブラックキャップ）：明らかに「容器」と分かる見た目にする
+      body = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.42, s * 0.46, s * 0.3, 6), mat);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(s * 0.3, s * 0.3, s * 0.1, 6), accentMat);
+      lid.position.y = s * 0.2;
+      g.add(lid);
+      for (const sx of [-1, 1]) { // 側面の入口スリット
+        const slit = new THREE.Mesh(new THREE.BoxGeometry(s * 0.16, s * 0.12, s * 0.1), accentMat);
+        slit.position.set(sx * s * 0.4, 0, 0);
+        g.add(slit);
+      }
+      break;
+    }
     default: // あめ玉（包み紙つき）
       body = new THREE.Mesh(new THREE.SphereGeometry(s * 0.34, 12, 10), mat);
       for (const sx of [-1, 1]) {
@@ -603,6 +615,95 @@ function createFurnitureMesh(f) {
       block(f.w * 1.01, f.h * 0.08, f.d * 1.01, 0, f.h * 0.75, 0, accent);
       break;
   }
+  return g;
+}
+
+// ルンバ：黒い円盤＋天面のボタン。回転する様子が分かるよう目印を付ける。
+function createRoombaMesh() {
+  const R = CONFIG.hazards.roomba.radius;
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3a3a42, roughness: 0.5 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xc0c4cc, roughness: 0.4, metalness: 0.3 });
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.95, R * 0.45, 24), bodyMat);
+  body.position.y = R * 0.25;
+  body.castShadow = true;
+  g.add(body);
+
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.45, R * 0.45, R * 0.12, 20), trimMat);
+  top.position.y = R * 0.5;
+  g.add(top);
+
+  // 前方のバンパー（進行方向が分かる目印）
+  const bumper = new THREE.Mesh(new THREE.BoxGeometry(R * 1.5, R * 0.28, R * 0.25), trimMat);
+  bumper.position.set(0, R * 0.25, R * 0.85);
+  g.add(bumper);
+
+  // 側面のブラシ
+  for (const sx of [-1, 1]) {
+    const brush = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.28, R * 0.28, R * 0.08, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffd93d, roughness: 0.8 }));
+    brush.position.set(sx * R * 0.7, R * 0.06, R * 0.6);
+    g.add(brush);
+  }
+  return g;
+}
+
+// 家蜘蛛：小さくて速い捕食者。脚は歩行に合わせて上下させる。
+function createSpiderMesh() {
+  const S = CONFIG.hazards.spider.radius;
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3b2d2b, roughness: 0.7 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff3b3b, roughness: 0.3 });
+
+  const abdomen = new THREE.Mesh(new THREE.SphereGeometry(S * 0.9, 12, 10), bodyMat);
+  abdomen.scale.set(1, 0.8, 1.2);
+  abdomen.position.set(0, S * 0.9, -S * 0.5);
+  abdomen.castShadow = true;
+  g.add(abdomen);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(S * 0.55, 10, 8), bodyMat);
+  head.position.set(0, S * 0.85, S * 0.7);
+  g.add(head);
+  for (const sx of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(S * 0.12, 6, 6), eyeMat);
+    eye.position.set(sx * S * 0.22, S * 0.95, S * 1.05);
+    g.add(eye);
+  }
+
+  // 8本脚（歩行アニメ用に保持）
+  const legs = [];
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const pivot = new THREE.Group();
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(S * 0.07, S * 0.04, S * 1.5, 5), bodyMat);
+      leg.position.set(sx * S * 0.7, -S * 0.2, 0);
+      leg.rotation.z = sx * 1.0;
+      pivot.add(leg);
+      pivot.position.set(0, S * 0.85, (1.5 - i) * S * 0.45);
+      g.add(pivot);
+      legs.push({ pivot, phase: i * 0.8 + (sx > 0 ? Math.PI : 0) });
+    }
+  }
+  g.userData = { legs };
+  return g;
+}
+
+// 家主のスリッパ：叩きつける瞬間だけ現れる
+function createSlipperMesh() {
+  const g = new THREE.Group();
+  const R = CONFIG.hazards.slipper.radius;
+  const mat = new THREE.MeshStandardMaterial({ color: 0x5b7fd4, roughness: 0.8 });
+  const sole = new THREE.Mesh(new THREE.BoxGeometry(R * 1.5, R * 0.35, R * 2.4), mat);
+  sole.castShadow = true;
+  g.add(sole);
+  const strap = new THREE.Mesh(
+    new THREE.BoxGeometry(R * 1.5, R * 0.7, R * 0.5),
+    new THREE.MeshStandardMaterial({ color: 0x3f5ea8, roughness: 0.8 })
+  );
+  strap.position.set(0, R * 0.4, R * 0.6);
+  g.add(strap);
+  g.visible = false;
   return g;
 }
 
@@ -880,6 +981,24 @@ export class ThreeRenderer extends Renderer {
     this.catMesh = createCatMesh();
     this.scene.add(this.catMesh);
 
+    this.roombaMesh = createRoombaMesh();
+    this.scene.add(this.roombaMesh);
+
+    this.spiderMesh = createSpiderMesh();
+    this.scene.add(this.spiderMesh);
+
+    // スリッパ：予告中は影だけ、着弾の瞬間に振り下ろす
+    this.slipperMesh = createSlipperMesh();
+    this.scene.add(this.slipperMesh);
+    this.slipperAnim = 0;
+    this.slipperWarnMesh = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 24),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })
+    );
+    this.slipperWarnMesh.rotation.x = -Math.PI / 2;
+    this.slipperWarnMesh.visible = false;
+    this.scene.add(this.slipperWarnMesh);
+
     // ゴキジェットの予告リング（噴射前だけ表示）
     this.sprayWarnMesh = new THREE.Mesh(
       new THREE.RingGeometry(1, 1.12, 40),
@@ -920,6 +1039,41 @@ export class ThreeRenderer extends Renderer {
     const paw = this.catMesh.userData.paw;
     const swing = cat.swipeAnim > 0 ? Math.sin((1 - cat.swipeAnim / 0.35) * Math.PI) : 0;
     paw.rotation.x = -swing * 1.6;
+  }
+
+  // ルンバ・家蜘蛛・スリッパの見た目を state に合わせる
+  _syncNewHazards(state, dt) {
+    // ルンバ：位置と向き（方向転換中はその場で回る）
+    const rb = state.roomba;
+    this.roombaMesh.position.set(rb.x, 0, rb.z);
+    this.roombaMesh.rotation.y = rb.angle;
+
+    // 家蜘蛛：位置・高さ・脚の上下
+    const sp = state.spider;
+    this.spiderMesh.position.set(sp.x, sp.y, sp.z);
+    this.spiderMesh.rotation.y = sp.angle;
+    for (const l of this.spiderMesh.userData.legs) {
+      l.pivot.rotation.x = Math.sin(sp.legPhase + l.phase) * 0.35;
+    }
+
+    // スリッパ：予告中は足元に影、着弾したら振り下ろす
+    const sl = state.slipper;
+    const warning = sl.phase === 'warn';
+    this.slipperWarnMesh.visible = warning;
+    if (warning) {
+      const r = CONFIG.hazards.slipper.radius;
+      this.slipperWarnMesh.position.set(sl.x, 0.08, sl.z);
+      this.slipperWarnMesh.scale.setScalar(r * (0.6 + 0.4 * Math.abs(Math.sin(this.elapsed * 6))));
+    }
+    if (this.slipperAnim > 0) {
+      this.slipperAnim -= dt;
+      const k = Math.max(0, this.slipperAnim / 0.35);
+      this.slipperMesh.visible = true;
+      this.slipperMesh.position.set(sl.x, 1 + k * k * 26, sl.z); // 上から落ちてくる
+      this.slipperMesh.rotation.z = k * 0.6;
+    } else {
+      this.slipperMesh.visible = false;
+    }
   }
 
   // ゴキジェットの予告リング（半径いっぱいに広がって危険域を示す）
@@ -987,6 +1141,10 @@ export class ThreeRenderer extends Renderer {
         case 'swipe':   this._addRing(ev, 0xff6b6b, 4.0, 0.4); break;   // 猫パンチ
         case 'spray':   this._addRing(ev, 0xb8ff5b, CONFIG.hazards.spray.radius * 1.6, 0.9); break;
         case 'takeover':this._addRing(ev, 0x4ecdc4, 6.0, 0.9); break;   // 乗り移り先を教える
+        case 'poison':  this._addRing(ev, 0x7d3cff, 2.6, 0.7); break;   // 毒餌を食べた
+        case 'roombaBump': this._addRing(ev, 0xc0c4cc, 2.0, 0.35); break; // ルンバが壁で反転
+        case 'slipper': this._addRing(ev, 0x5b7fd4, CONFIG.hazards.slipper.radius * 1.4, 0.5);
+                        this.slipperAnim = 0.35; break;                 // スリッパ着弾
       }
     }
   }
@@ -1027,6 +1185,7 @@ export class ThreeRenderer extends Renderer {
     this._syncFoods(state, dt);
     this._syncTraps(state);
     this._syncCat(state, dt);
+    this._syncNewHazards(state, dt);
     this._syncSpray(state);
     this._consumeEvents(state);
     this._updateEffects(dt);

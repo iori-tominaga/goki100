@@ -39,7 +39,7 @@ export const CONFIG = {
 
   // 餌（食べ残し）。拾うとゲージが溜まり、少し経つと別の場所へ再湧きする。
   food: {
-    count: 26,          // フロアに同時に存在する餌の数
+    count: 36,          // フロアに同時に存在する餌の数（危険が増えたぶん供給も増やす）
     respawnDelay: 3.5,  // 拾ってから別地点に復活するまでの秒数
     pickupRadius: 1.3,  // ゴキの中心とこの距離まで近づくと回収
     reachHeight: 1.6,   // 高さ方向の許容差（上の階の餌を拾わないため）
@@ -71,15 +71,36 @@ export const CONFIG = {
       swipeInterval: 2.4, wanderInterval: 2.5, radius: 2.2,
     },
     // 家主のゴキジェット：予告してから、ゴキの居るあたりへ噴射。範囲内は全滅。
-    spray: { interval: 16, warning: 2.2, radius: 6.0 },
+    spray: { interval: 22, warning: 2.2, radius: 5.0 },
+
+    // ルンバ：直進し、ぶつかると向きを変えて徘徊。進路上のゴキを吸い込む。
+    // 動きが読めるぶん「避ける楽しさ」になる。
+    // runTime 秒走ったら restTime 秒休む（本物と同じで充電に戻るイメージ）。
+    // 常時走らせると部屋中を舐め回して群れが持たないため、安全な時間帯を作る。
+    roomba: { speed: 8.0, radius: 3.0, killRadius: 1.8, turnPause: 0.45, runTime: 14, restTime: 16 },
+
+    // 家蜘蛛：小さくて速い捕食者。家具の上まで追ってくるので高所も安全ではない。
+    // feedTime … 1匹捕らえるとその場で食事に入り、その間は動かない。
+    //   これが無いと連続で狩り続けてしまい、たった1匹で群れが壊滅する。
+    //   数値を弱めるのではなく「休む時間」を作って抑えるのが狙い。
+    spider: {
+      speed: 7.6, sightRadius: 15, killRadius: 1.3, radius: 0.9,
+      wanderInterval: 2.0, climbRate: 9, feedTime: 6.0,
+    },
+
+    // 家主のスリッパ：足元に寄ったゴキを叩き潰す。影が落ちてから一拍おいて着弾。
+    slipper: { interval: 14, warning: 1.1, radius: 2.8, reach: 14 },
   },
+
+  // 毒餌（ブラックキャップ）。餌に見せかけた死。数と復活時間だけ持つ。
+  poison: { count: 3, respawnDelay: 20 },
 
   // 仰向けにひっくり返って消えるまでの秒数。
   death: { flipTime: 1.2 },
 
   // 増殖ゲージ。溜まるほど次の1匹に必要な量が増える（後半ほど大変になる）。
   gauge: {
-    base: 55,      // 2匹目に必要な量
+    base: 42,      // 2匹目に必要な量
     growth: 0.02,  // 1匹増えるごとに必要量が +2%（100匹時で約7倍。上げると後半が重くなる）
   },
 
@@ -146,7 +167,7 @@ export const ITEMS = {
 //   ────────  ベランダ  ────────
 export const FURNITURE = [
   // --- キッチン（左上）---
-  { kind: 'fridge',   style: 'cabinet', x: -27.0, z: -14.1, w: 9.6,  d: 9.9,  h: 16, color: 0xe8e8e8, accent: 0xb0b0b0 },
+  { kind: 'fridge',   style: 'cabinet', x: -27.0, z: -14.1, w: 9.6,  d: 9.9,  h: 16, color: 0xe8e8e8, accent: 0xb0b0b0 , climb: false },
   { kind: 'counter',  style: 'counter', x: -13.3, z: -15.1, w: 13.5, d: 4.6,  h: 8,  color: 0xf2f2f2, accent: 0xc8ccd0 },
   { kind: 'microwave',style: 'box',     x: -17.4, z: -14.9, w: 4.8,  d: 3.7,  h: 12, color: 0xfafafa, accent: 0x444444 },
   { kind: 'trash',    style: 'bin',     x: -21.8, z: -10.8, w: 2.9,  d: 3.6,  h: 5,  color: 0xd9c9a8, accent: 0x8a5a2b },
@@ -157,7 +178,7 @@ export const FURNITURE = [
   { kind: 'chair',    style: 'chair',   x: -20.3, z: -3.5,  w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b },
   { kind: 'chair',    style: 'chair',   x: -24.8, z: 6.3,   w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b, rotY: Math.PI },
   { kind: 'chair',    style: 'chair',   x: -20.3, z: 6.3,   w: 3.7,  d: 3.7,  h: 4.8, color: 0xd9b98a, accent: 0x8a5a2b, rotY: Math.PI },
-  { kind: 'curtain',  style: 'curtain', x: -29.1, z: 3.8,   w: 2.0,  d: 17.4, h: 16, color: 0xe6ded0, accent: 0xb8ac98 },
+  { kind: 'curtain',  style: 'curtain', x: -29.1, z: 3.8,   w: 2.0,  d: 17.4, h: 16, color: 0xe6ded0, accent: 0xb8ac98 , climb: false },
   { kind: 'sidebox',  style: 'box',     x: -25.8, z: 13.8,  w: 3.8,  d: 4.2,  h: 5,  color: 0xc9a06a, accent: 0x6b4423 },
 
   // --- リビング（中央）---
@@ -167,11 +188,11 @@ export const FURNITURE = [
   { kind: 'plant',    style: 'plant',   x: 3.9,   z: 16.0,  w: 3.2,  d: 3.4,  h: 6,  color: 0xdcdcdc, accent: 0x3ba55d },
 
   // --- 玄関・クローゼット（右上）---
-  { kind: 'closet',   style: 'cabinet', x: 17.3,  z: -14.0, w: 16.9, d: 10.1, h: 18, color: 0xd8d4cc, accent: 0x9a938a },
+  { kind: 'closet',   style: 'cabinet', x: 17.3,  z: -14.0, w: 16.9, d: 10.1, h: 18, color: 0xd8d4cc, accent: 0x9a938a , climb: false },
   { kind: 'shoebox',  style: 'box',     x: 3.7,   z: -8.7,  w: 4.5,  d: 2.7,  h: 4,  color: 0xcfc4b0, accent: 0x8a7f6a },
 
   // --- ワークスペース（右）---
-  { kind: 'rack',     style: 'rack',    x: 16.2,  z: -2.0,  w: 20.4, d: 2.0,  h: 9,  color: 0xcccccc, accent: 0x8a8a8a },
+  { kind: 'rack',     style: 'rack',    x: 16.2,  z: -2.0,  w: 20.4, d: 2.0,  h: 9,  color: 0xcccccc, accent: 0x8a8a8a , climb: false },
   { kind: 'chest',    style: 'box',     x: 10.5,  z: 0.8,   w: 9.2,  d: 3.7,  h: 6,  color: 0xc08a52, accent: 0x7a5230 },
   { kind: 'desk',     style: 'table',   x: 19.9,  z: 8.0,   w: 6.0,  d: 13.4, h: 7,  color: 0xc08a52, accent: 0x7a5230 },
   { kind: 'chair',    style: 'chair',   x: 14.1,  z: 6.4,   w: 4.8,  d: 4.6,  h: 5,  color: 0xb07840, accent: 0x6b4423, rotY: Math.PI / 2 },
@@ -206,6 +227,9 @@ export const FOODS = {
   crumb:  { weight: 4, value: 12, shape: 'crumb',  size: 1.0, color: 0xd9a05b, accent: 0x8a5a2b, label: 'パンくず' },
   noodle: { weight: 3, value: 18, shape: 'noodle', size: 1.1, color: 0xffe08a, accent: 0xff9f1c, label: '麺' },
   candy:  { weight: 2, value: 24, shape: 'candy',  size: 1.0, color: 0xff6b6b, accent: 0x6c5ce7, label: 'あめ玉' },
+  // 毒餌。weight 0 ＝ 通常の抽選には出ず、毒餌枠としてだけ配置される。
+  // 見た目は明らかに「容器」。知っていれば避けられる＝理不尽ではなく駆け引きにする。
+  poison: { weight: 0, value: 0,  shape: 'poison', size: 1.3, color: 0x2b2b2b, accent: 0x7d3cff, label: '毒餌' },
 };
 
 // 特大の人間（障害物として絡む）。sitting=座り姿勢のおばあちゃん、standing=立ちの家主。
