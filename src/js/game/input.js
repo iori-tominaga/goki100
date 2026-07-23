@@ -11,11 +11,12 @@ export class InputManager {
     this.keys = new Set();
     // 仮想スティックの状態（触れていなければ active=false）
     this.stick = { active: false, x: 0, z: 0, pointerId: null };
-    // 集合（押している間だけ、近くの仲間が付いてくる）
-    this.gathering = false;
 
     this._onDown = (e) => {
-      if (e.key === ' ') { this.gathering = true; e.preventDefault(); }
+      if (e.key === ' ') {
+        if (!e.repeat && this._actionPress) this._actionPress();
+        e.preventDefault();
+      }
       const k = this._normalize(e.key);
       if (k) {
         this.keys.add(k);
@@ -24,7 +25,6 @@ export class InputManager {
       }
     };
     this._onUp = (e) => {
-      if (e.key === ' ') this.gathering = false;
       const k = this._normalize(e.key);
       if (k) this.keys.delete(k);
     };
@@ -32,26 +32,19 @@ export class InputManager {
     window.addEventListener('keydown', this._onDown);
     window.addEventListener('keyup', this._onUp);
     // フォーカスが外れたら押しっぱなし状態をリセット
-    window.addEventListener('blur', () => { this.keys.clear(); this.gathering = false; });
+    window.addEventListener('blur', () => this.keys.clear());
   }
 
-  // 集合ボタンを有効化する。キーボードはスペースでも操作できる。
-  attachGather(button) {
-    const on = () => { this.gathering = true; button.classList.add('on'); };
-    const off = () => { this.gathering = false; button.classList.remove('on'); };
+  // アクションボタン（つれていく／解散）を有効化する。
+  // 押した瞬間に onPress を1回だけ呼ぶ。スペースキーでも発火する。
+  attachActionButton(button, onPress) {
+    const fire = () => { onPress(); button.classList.add('on'); setTimeout(() => button.classList.remove('on'), 120); };
     if ('ontouchstart' in window) {
-      button.addEventListener('touchstart', (e) => { on(); e.preventDefault(); }, { passive: false });
-      for (const el of [button, document]) {
-        el.addEventListener('touchend', off, { passive: true });
-        el.addEventListener('touchcancel', off, { passive: true });
-      }
+      button.addEventListener('touchstart', (e) => { fire(); e.preventDefault(); }, { passive: false });
     } else {
-      button.addEventListener('pointerdown', on);
-      window.addEventListener('pointerup', off);
-      window.addEventListener('pointercancel', off);
+      button.addEventListener('pointerdown', (e) => { fire(); e.preventDefault(); });
     }
-    window.addEventListener('blur', off);
-    button.style.display = 'flex';
+    this._actionPress = onPress;
   }
 
   _normalize(key) {

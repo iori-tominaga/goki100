@@ -753,38 +753,50 @@ function createSpiderMesh() {
   return g;
 }
 
-// 巣：暗がりの安全地帯。中に居る仲間は死なない。
-// 「ここは安全」と一目で分かるよう、床にリングを敷いて卵を盛る。
-function createNestMesh(radius) {
+// 巣：壁に空いた穴と、その奥（部屋の外）の安全地帯。
+// nest は { wall, hole:{x,z}, center:{x,z}, entrance:{x,z}, radius } を持つ。
+function createNestMesh(nest) {
   const g = new THREE.Group();
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x4a3628, roughness: 1, transparent: true, opacity: 0.85,
-  });
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 28), floorMat);
+  const r = nest.radius;
+
+  // 壁の穴（黒い長方形の凹み）。壁の面に貼り付ける向きを wall から決める。
+  const holeH = 5.5, holeW = r * 2;
+  const hole = new THREE.Mesh(
+    new THREE.PlaneGeometry(holeW, holeH),
+    new THREE.MeshBasicMaterial({ color: 0x120b08, side: THREE.DoubleSide })
+  );
+  const inward = { 'x-': [1, 0], 'x+': [-1, 0], 'z-': [0, 1], 'z+': [0, -1] }[nest.wall];
+  hole.position.set(nest.hole.x + inward[0] * 0.2, holeH / 2, nest.hole.z + inward[1] * 0.2);
+  if (nest.wall === 'x-' || nest.wall === 'x+') hole.rotation.y = Math.PI / 2;
+  g.add(hole);
+
+  // 穴の縁（かじった跡のギザギザ）
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.9 });
+  for (let i = 0; i < 10; i++) {
+    const t = i / 9 - 0.5;
+    const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.2, 4), rimMat);
+    const along = t * holeW;
+    const ax = nest.along === 'x' ? along : 0;
+    const az = nest.along === 'z' ? along : 0;
+    tooth.position.set(nest.hole.x + ax, holeH - 0.2, nest.hole.z + az);
+    tooth.rotation.z = Math.PI;
+    g.add(tooth);
+  }
+
+  // 奥の安全地帯（部屋の外の床）＋卵の山。ここに潜った仲間が並ぶ。
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1e, roughness: 1 });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 24), floorMat);
   disc.rotation.x = -Math.PI / 2;
-  disc.position.y = 0.04;
-  disc.receiveShadow = true;
+  disc.position.set(nest.center.x, 0.05, nest.center.z);
   g.add(disc);
 
-  // 縁取り（範囲が分かるように）
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 0.92, radius, 28),
-    new THREE.MeshBasicMaterial({ color: 0xffd93d, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.06;
-  g.add(ring);
-
-  // 卵の山
   const eggMat = new THREE.MeshStandardMaterial({ color: 0xd8c4a0, roughness: 0.8 });
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    const r = radius * (0.15 + (i % 3) * 0.16);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const rr = r * (0.2 + (i % 3) * 0.18);
     const egg = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6), eggMat);
     egg.scale.set(1, 0.75, 1.5);
-    egg.position.set(Math.cos(a) * r, 0.35, Math.sin(a) * r);
-    egg.rotation.y = a;
-    egg.castShadow = true;
+    egg.position.set(nest.center.x + Math.cos(a) * rr, 0.35, nest.center.z + Math.sin(a) * rr);
     g.add(egg);
   }
   return g;
@@ -1104,10 +1116,9 @@ export class ThreeRenderer extends Renderer {
       this.trapMeshes.set(t.id, mesh);
       this.scene.add(mesh);
     }
-    // 巣（安全地帯）
+    // 巣：壁の穴＋その奥（部屋の外）の安全地帯
     for (const n of state.nests) {
-      const mesh = createNestMesh(n.radius);
-      mesh.position.set(n.x, 0, n.z);
+      const mesh = createNestMesh(n);
       this.scene.add(mesh);
     }
 

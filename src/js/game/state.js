@@ -222,7 +222,7 @@ export class GameState {
       mode: 'ground', vy: 0, climbRef: null, climbY: 0, climbNormalAngle: 0,
       climbAxis: 'x', climbSign: 1, climbLat: 0,
       climbCooldown: 0,
-      dying: 0, stuck: null,
+      dying: 0, stuck: null, recruited: false, nested: false,
     }];
     // 操作中の個体は id で覚える（死んだら仲間へ乗り移るため、配列の先頭固定にはできない）
     this.playerId = this.roaches[0].id;
@@ -279,16 +279,23 @@ export class GameState {
     this.dirt = CONFIG.dirt.start;
     this.nestDelivered = 0; // 巣へ連れて行った延べ匹数（ミッション用）
 
-    // 巣：中に居る仲間は死なない安全地帯。家具に埋まらない位置へ寄せる。
-    this.nests = CONFIG.breeding.nest.spots.map(([x, z]) => {
-      let nx = x, nz = z;
-      for (let i = 0; i < 40; i++) {
-        const blocked = this.obstacles.some((o) => insideBox(o, nx, nz, CONFIG.breeding.nest.radius * 0.5));
-        if (!blocked) break;
-        nx = x + (Math.random() * 2 - 1) * 6;
-        nz = z + (Math.random() * 2 - 1) * 6;
+    // 巣：壁に開けた穴の奥（プレイエリアの外）に置く。
+    // エリア外なので餌もゴキも湧かない。仲間は穴口(entrance)から潜り込む。
+    const nc = CONFIG.breeding.nest;
+    const hx = CONFIG.house.width / 2, hz = CONFIG.house.depth / 2;
+    this.nests = nc.spots.map((sp) => {
+      let entrance, center, holeX, holeZ, along;
+      switch (sp.wall) {
+        case 'x-': entrance = { x: -hx + 1.5, z: sp.along }; center = { x: -hx - nc.depth, z: sp.along }; holeX = -hx; holeZ = sp.along; along = 'z'; break;
+        case 'x+': entrance = { x: hx - 1.5, z: sp.along };  center = { x: hx + nc.depth, z: sp.along };  holeX = hx;  holeZ = sp.along; along = 'z'; break;
+        case 'z-': entrance = { x: sp.along, z: -hz + 1.5 }; center = { x: sp.along, z: -hz - nc.depth }; holeX = sp.along; holeZ = -hz; along = 'x'; break;
+        default:   entrance = { x: sp.along, z: hz - 1.5 };  center = { x: sp.along, z: hz + nc.depth };  holeX = sp.along; holeZ = hz;  along = 'x'; break;
       }
-      return { id: nextId++, x: nx, z: nz, radius: CONFIG.breeding.nest.radius };
+      return {
+        id: nextId++, wall: sp.wall, along,
+        entrance, center, hole: { x: holeX, z: holeZ },
+        radius: nc.radius,
+      };
     });
 
     // 卵鞘：低確率で現れるレアアイテム
@@ -308,10 +315,46 @@ export class GameState {
     return Math.min(CONFIG.dirt.maxFood, Math.round(CONFIG.food.count + this.dirt * CONFIG.dirt.perFood));
   }
 
-  // 巣の中に居るか（＝安全。ただし餌は拾わない）
+  // 巣に潜り込んだ個体か（フラグで持つ。位置で判定しないので、
+  // 床にたまたま湧いた個体が「巣扱い」になる事故が起きない）。
   inNest(r) {
-    if (r.y > 1.5) return false;
-    return this.nests.some((n) => Math.hypot(r.x - n.x, r.z - n.z) < n.radius);
+    return !!r.nested;
+  }
+
+  // プレイヤーの近くに居て、まだ隊列に入っていない仲間の数
+  recruitableCount() {
+    const p = this.player;
+    if (!p || p.dying) return 0;
+    const rad = CONFIG.breeding.recruit.showRadius;
+    let n = 0;
+    for (const r of this.roaches) {
+      if (r.isPlayer || r.preview || r.dying || r.nested || r.recruited) continue;
+      if (Math.hypot(r.x - p.x, r.z - p.z) < rad) n++;
+    }
+    return n;
+  }
+
+  get recruitedCount() {
+    return this.roaches.filter((r) => r.recruited && !r.dying && !r.nested).length;
+  }
+
+  // 「つれていく」ボタンの処理。近くに未加入の仲間が居れば隊列に加える。
+  // 居なくて既に隊列があるなら解散する（同じボタンで両方こなす）。
+  toggleRecruit() {
+    const p = this.player;
+    if (!p || p.dying) return;
+    const c = CONFIG.breeding.recruit;
+    let added = 0;
+    for (const r of this.roaches) {
+      if (r.isPlayer || r.preview || r.dying || r.nested || r.recruited) continue;
+      if (Math.hypot(r.x - p.x, r.z - p.z) < c.grabRadius) { r.recruited = true; r.ai = null; added++; }
+    }
+    if (added > 0) {
+      this.events.push({ type: 'recruit', count: added, x: p.x, y: p.y, z: p.z });
+    } else if (this.recruitedCount > 0) {
+      for (const r of this.roaches) if (r.recruited) r.recruited = false;
+      this.events.push({ type: 'disband', x: p.x, y: p.y, z: p.z });
+    }
   }
 
   // その危険が今の匹数で有効か。初めて有効になった時だけ通知を出す。
@@ -410,7 +453,7 @@ export class GameState {
       mode: 'ground', vy: 0, climbRef: null, climbY: 0, climbNormalAngle: 0,
       climbAxis: 'x', climbSign: 1, climbLat: 0,
       climbCooldown: 0,
-      dying: 0, stuck: null,
+      dying: 0, stuck: null, recruited: false, nested: false,
     };
     this.roaches.push(roach);
     return roach;
@@ -423,7 +466,7 @@ export class GameState {
   // 1フレーム分の進行。main.js はこれだけ呼べばよい。
   update(worldVec, dt) {
     this.updatePlayer(worldVec, dt);
-    this._updateAI(dt, !!worldVec.gather);
+    this._updateAI(dt);
     this._separateRoaches();
     this._updateFoods(dt);
     this._updateOotheca(dt);
@@ -821,30 +864,33 @@ export class GameState {
   // --- 仲間ゴキの自律AI ---
   // 視界に餌がなければふらふら徘徊、入ったら真っ直ぐ食いつく。
   // 登りはしない（プレイヤーの特権）。地上のみを歩き、低い段差だけ乗り越える。
-  _updateAI(dt, gathering) {
+  _updateAI(dt) {
     const a = CONFIG.ai;
-    const g = CONFIG.breeding.gather;
+    const rc = CONFIG.breeding.recruit;
     const p = this.player;
     for (const r of this.roaches) {
       if (r.isPlayer || r.preview || r.dying || r.stuck) continue;
+
+      // 巣に潜った仲間は動かない（安全地帯で留まる）
+      if (r.nested) continue;
+
       if (!r.ai) r.ai = { wanderAngle: r.angle, timer: 0 };
 
-      // 集合中：近くの仲間はプレイヤーに付いてくる（巣まで連れて行くための手段）
-      if (gathering) {
+      // 隊列に加わった仲間：プレイヤーを追う。
+      // 途中で巣の穴口に近づいたら、そのまま潜り込んで安全になる。
+      if (r.recruited) {
+        for (const n of this.nests) {
+          if (Math.hypot(r.x - n.entrance.x, r.z - n.entrance.z) < CONFIG.breeding.nest.entrance) {
+            this._enterNest(r, n);
+            break;
+          }
+        }
+        if (r.nested) continue;
         const dxp = p.x - r.x, dzp = p.z - r.z;
         const dp = Math.hypot(dxp, dzp);
-        if (dp < g.radius) {
-          if (dp > CONFIG.roach.radius * 3) {
-            this._moveAI(r, dxp / dp, dzp / dp, g.speed, dt);
-          }
-          r.following = true;
-          continue;
-        }
+        if (dp > rc.followGap) this._moveAI(r, dxp / dp, dzp / dp, rc.followSpeed, dt);
+        continue;
       }
-      r.following = false;
-
-      // 巣の中に居る仲間はそこに留まる（安全だが餌は拾わない）
-      if (this.inNest(r)) continue;
 
       // 1) 一番近い餌を探す（視界内のみ）
       let best = a.sightRadius, tx = 0, tz = 0, seeking = false;
@@ -875,6 +921,20 @@ export class GameState {
 
       this._moveAI(r, dirX, dirZ, seeking ? a.seekSpeed : a.wanderSpeed, dt);
     }
+  }
+
+  // 仲間を巣（壁の穴の奥）に潜り込ませる。以後は安全地帯で留まる。
+  _enterNest(r, nest) {
+    r.recruited = false;
+    r.nested = true;
+    r.mode = 'ground'; r.stuck = null; r.climbCooldown = 0;
+    // 巣の中（壁の外側）へ散らして配置する
+    const a = Math.random() * Math.PI * 2, d = Math.random() * nest.radius * 0.7;
+    r.x = nest.center.x + Math.cos(a) * d;
+    r.z = nest.center.z + Math.sin(a) * d;
+    r.y = 0;
+    r.angle = Math.atan2(nest.entrance.x - r.x, nest.entrance.z - r.z);
+    this.events.push({ type: 'nested', x: nest.hole.x, y: 0, z: nest.hole.z });
   }
 
   // AI 個体の移動。障害物は「低ければ乗り、高ければ滑って回り込む」だけの簡易版。
@@ -908,7 +968,7 @@ export class GameState {
     const rr = CONFIG.roach.radius;
     const minD = rr * CONFIG.ai.separation;
     // 粘着中・死亡中は押し合いから除外（トラップから押し出されたら台無し）
-    const list = this.roaches.filter((r) => !r.preview && !r.dying && !r.stuck);
+    const list = this.roaches.filter((r) => !r.preview && !r.dying && !r.stuck && !r.nested);
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
@@ -950,7 +1010,7 @@ export class GameState {
       }
       // どのゴキでも拾える＝Phase 2 の自律AIもそのままこの判定に乗る。
       for (const r of this.roaches) {
-        if (r.preview || r.dying) continue;
+        if (r.preview || r.dying || r.nested) continue;
         if (Math.abs(r.y - f.y) > CONFIG.food.reachHeight) continue;
         if (Math.hypot(r.x - f.x, r.z - f.z) > CONFIG.food.pickupRadius + CONFIG.roach.radius) continue;
         this._collect(f, r);

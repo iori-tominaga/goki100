@@ -25,8 +25,9 @@ if (isTouchDevice()) {
   document.getElementById('controls').innerHTML =
     '<span>左半分でスティック／右半分で視点／2本指でズーム</span>';
 }
-// 集合ボタンはPCでも使う（スペースキーでも可）
-input.attachGather(document.getElementById('gather-btn'));
+// 「つれていく／解散」ボタン（PCはスペースキーでも可）
+const gatherBtn = document.getElementById('gather-btn');
+input.attachActionButton(gatherBtn, () => state.toggleRecruit());
 
 // HUD 更新（匹数と増殖ゲージ）
 const countEl = document.getElementById('count');
@@ -40,6 +41,21 @@ function updateHud() {
   gaugeEl.style.width = `${ratio * 100}%`;
   gaugeEl.classList.toggle('hot', ratio > 0.8);
   dirtEl.style.width = `${Math.min(100, state.dirt)}%`;
+
+  // ボタン：近くに未加入の仲間が居れば「つれていく」、隊列があれば「解散」
+  const recruitable = state.recruitableCount();
+  const following = state.recruitedCount;
+  if (recruitable > 0) {
+    gatherBtn.textContent = `つれていく
+(${recruitable})`;
+    gatherBtn.style.display = 'flex';
+  } else if (following > 0) {
+    gatherBtn.textContent = `解散
+(${following})`;
+    gatherBtn.style.display = 'flex';
+  } else {
+    gatherBtn.style.display = 'none';
+  }
 
   const m = state.currentMission;
   if (!m) {
@@ -76,6 +92,8 @@ function handleNotices() {
     else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 家が汚れた（+${ev.dirt}） 餌が${ev.foods}個に`, false);
     else if (ev.type === 'oothecaAppear') showToast('🥚 卵鞘が出現した！ 急いで取りに行こう', false);
     else if (ev.type === 'hatch') showToast(`🥚 卵鞘が孵化！ ${ev.count}匹増えた`, false);
+    else if (ev.type === 'recruit') showToast(`🐜 ${ev.count}匹を引き連れた！ 巣の穴へ運ぼう`, false);
+    else if (ev.type === 'nested') showToast('🕳 仲間が巣に潜った（安全）', false);
   }
 }
 
@@ -141,7 +159,6 @@ function loop(now) {
       x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r, // world 基準（地上用）
       fwd: f, right: r,                               // 画面基準（登り用）
       rightX: rgtX, rightZ: rgtZ,                     // カメラ右ベクトル（左右の向き合わせ）
-      gather: input.gathering,                        // 集合ボタンの状態
     };
     state.update(move, dt);
     renderer.sync(state, dt);
