@@ -492,19 +492,23 @@ export class GameState {
     if (roach.id === this.playerId) this._takeover(roach);
   }
 
-  // プレイヤー個体が死んだら、一番近い仲間へ乗り移る。誰も居なければゲームオーバー。
+  // プレイヤー個体が死んだら、一番近い「動ける」仲間へ乗り移る。
+  // 巣に潜った仲間（安全に貯蔵中）や粘着中の仲間には乗り移らない。
+  // 動ける仲間が居なければゲームオーバー（巣の仲間はゴール数には数えるが操作はできない）。
   _takeover(dead) {
     dead.isPlayer = false;
+    dead.recruited = false;
     let best = Infinity, next = null;
     for (const r of this.roaches) {
-      if (r.dying || r.preview || r.id === dead.id) continue;
+      if (r.dying || r.preview || r.nested || r.stuck || r.id === dead.id) continue;
       const d = Math.hypot(r.x - dead.x, r.z - dead.z);
       if (d < best) { best = d; next = r; }
     }
     if (!next) { this.gameOver = true; return; }
     this.playerId = next.id;
     next.isPlayer = true;
-    next.ai = null; // AI を捨てて操作対象に戻す
+    next.ai = null;      // AI を捨てて操作対象に戻す
+    next.recruited = false;
     this.events.push({ type: 'takeover', x: next.x, y: next.y, z: next.z });
   }
 
@@ -518,8 +522,9 @@ export class GameState {
       if (this.roaches.length <= 1) { r.dying = 0.0001; continue; }
       this.roaches.splice(i, 1);
     }
-    // 生きた個体が1匹も居なくなった時だけゲームオーバー（復活したら解除される）
-    this.gameOver = !this.roaches.some((r) => !r.dying && !r.preview);
+    // 操作できる個体（＝巣の外で生きている）が居なくなったらゲームオーバー。
+    // 巣に潜った仲間はゴール数には数えるが、操作対象にはならない。
+    this.gameOver = !this.roaches.some((r) => !r.dying && !r.preview && !r.nested);
   }
 
   // --- ゴキブリホイホイ：踏むと粘着、数秒後に死亡。満員になると機能停止＆置き換え ---
@@ -621,12 +626,15 @@ export class GameState {
   // 敵キャラ共通の移動。押し出しで進めなくなったら stuckTime が伸びていくので、
   // 呼び出し側はそれを見て進路を変える。これが無いと家具の角に挟まって
   // 永久に動けなくなる（＝スタック）。
-  _moveActor(a, dirX, dirZ, speed, radius, dt, minTop = 6) {
+  // ignore … この障害物とは当たり判定しない（家主が自分の判定箱に
+  // 押し出されて詰まるのを防ぐため）。
+  _moveActor(a, dirX, dirZ, speed, radius, dt, minTop = 6, ignore = null) {
     const wantX = a.x + dirX * speed * dt;
     const wantZ = a.z + dirZ * speed * dt;
     let nx = wantX, nz = wantZ;
 
     for (const o of this.obstacles) {
+      if (o === ignore) continue;                // 自分自身の判定箱は無視
       if (o.top < minTop) continue;              // 低い家具はまたぐ
       const hit = boxResolve(o, nx, nz, radius);
       if (hit) { nx = hit.x; nz = hit.z; }
@@ -807,7 +815,7 @@ export class GameState {
         if (d > c.stopDistance && o.timer > 0) {
           // 大きな家具は避けて歩く。抜けられなければ諦めてその場から攻撃する
           const speed = Math.min(c.walkSpeed, (d - c.stopDistance) / Math.max(dt, 1e-3));
-          const stuck = this._moveActor(g, dx / d, dz / d, speed, g.radius, dt, 10);
+          const stuck = this._moveActor(g, dx / d, dz / d, speed, g.radius, dt, 10, this.ownerObstacle);
           o.walking = true;
           if (stuck < 0.8) break;
           o.targetX = g.x + (dx / d) * c.stopDistance;

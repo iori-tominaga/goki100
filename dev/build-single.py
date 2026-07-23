@@ -39,6 +39,7 @@ ORDER = [
     "js/render/ThreeRenderer.js",
     "js/game/input.js",
     "js/game/state.js",
+    "js/audio.js",
     "js/main.js",
 ]
 

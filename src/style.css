@@ -164,6 +164,24 @@ html, body {
 }
 #mission.done { background: rgba(46, 196, 182, 0.9); }
 
+/* サウンド切替ボタン（右上） */
+#mute-btn {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 22;
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.8);
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+#mute-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15); }
+
 /* 危険の出現・ミッション達成の通知 */
 #toast {
   position: fixed;

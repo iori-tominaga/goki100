@@ -6,6 +6,7 @@
 import { GameState } from './game/state.js';
 import { InputManager, isTouchDevice } from './game/input.js';
 import { ThreeRenderer } from './render/ThreeRenderer.js';
+import { AudioManager } from './audio.js';
 
 const container = document.getElementById('game');
 
@@ -28,6 +29,19 @@ if (isTouchDevice()) {
 // 「つれていく／解散」ボタン（PCはスペースキーでも可）
 const gatherBtn = document.getElementById('gather-btn');
 input.attachActionButton(gatherBtn, () => state.toggleRecruit());
+
+// --- 音（効果音＋BGM）---
+const audio = new AudioManager();
+// ブラウザの自動再生制限：最初のユーザー操作で音を有効化する
+const unlockAudio = () => audio.unlock();
+for (const ev of ['pointerdown', 'touchstart', 'keydown']) {
+  window.addEventListener(ev, unlockAudio, { once: true });
+}
+// ミュートボタン
+const muteBtn = document.getElementById('mute-btn');
+const paintMute = () => { muteBtn.textContent = audio.muted ? '🔇' : '🔊'; };
+paintMute();
+muteBtn.addEventListener('click', () => { audio.unlock(); audio.toggleMute(); paintMute(); });
 
 // HUD 更新（匹数と増殖ゲージ）
 const countEl = document.getElementById('count');
@@ -86,8 +100,17 @@ function showToast(text, danger) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
 }
+// state のイベント → 効果音
+const SFX_FOR = {
+  pickup: 'pickup', spawn: 'spawn', hatch: 'hatch', death: 'death',
+  mission: 'mission', recruit: 'recruit', nested: 'nested',
+  hazardAppear: 'danger', oothecaAppear: 'hatch',
+  swipe: 'swipe', ownerSlam: 'swipe', ownerSpray: 'spray', spray: 'spray',
+};
 function handleNotices() {
   for (const ev of state.events) {
+    const sfx = SFX_FOR[ev.type];
+    if (sfx) audio.sfx(sfx);
     if (ev.type === 'hazardAppear' && HAZARD_NAMES[ev.name]) showToast(HAZARD_NAMES[ev.name], true);
     else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 家が汚れた（+${ev.dirt}） 餌が${ev.foods}個に`, false);
     else if (ev.type === 'oothecaAppear') showToast('🥚 卵鞘が出現した！ 急いで取りに行こう', false);
@@ -128,6 +151,8 @@ function checkResult() {
   if (resultShown) return;
 
   resultShown = true;
+  audio.sfx(won ? 'win' : 'lose');
+  audio.stopBgm();
   document.getElementById('result-icon').textContent = won ? '🎉' : '🪳';
   document.getElementById('result-title').textContent = won ? '100匹 達成！' : 'ぜんめつ…';
   document.getElementById('result-text').textContent = won
