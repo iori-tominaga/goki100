@@ -47,13 +47,64 @@
   <!-- 危険の解禁・ミッション達成を知らせる一時表示 -->
   <div id="toast"></div>
 
-  <!-- 決着表示（全滅／100匹達成）。main.js が状態を見て出す -->
+  <!-- ホーム画面：スタート・遊び方・ステージ選択・成績 -->
+  <div id="home">
+    <div class="home-inner">
+      <h1 class="home-title">ゴキブリは<br>1匹みたら100匹<br>いると思え</h1>
+      <p class="home-sub">家の中でゴキブリを増やして100匹を目指す3D育成くそげー</p>
+
+      <div class="stage-select">
+        <button class="stage-card selected" type="button" data-stage="house">
+          <span class="stage-name">🏠 わが家</span>
+          <span class="stage-goal">目標 100匹</span>
+          <span class="stage-best" id="home-best">ベスト：—</span>
+        </button>
+        <div class="stage-card locked">
+          <span class="stage-name">🔒 ？？？</span>
+          <span class="stage-goal">近日追加</span>
+        </div>
+      </div>
+
+      <button id="start-btn" type="button">スタート！</button>
+
+      <div class="home-panels">
+        <section class="home-panel">
+          <h3>あそびかた</h3>
+          <ul>
+            <li>移動して<b>食べ残し</b>を拾い、ゲージを溜めて増殖</li>
+            <li>仲間は<b>自動</b>で餌を集める（放置でも増える）</li>
+            <li><b>ミッション</b>達成で家が汚れ、餌が増える</li>
+            <li>近くの仲間を<b>つれていく</b>→壁の穴（巣）で安全に貯蔵</li>
+            <li>猫・ルンバ・家主・蜘蛛の<b>死亡アクション</b>を避けろ</li>
+          </ul>
+        </section>
+        <section class="home-panel">
+          <h3>これまでの成績</h3>
+          <dl id="home-stats">
+            <dt>クリア回数</dt><dd id="stat-clears">0</dd>
+            <dt>ベストタイム</dt><dd id="stat-best">—</dd>
+            <dt>最高の称号</dt><dd id="stat-rank">—</dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結果発表画面（クリア／全滅）。クリアタイムで称号がつく -->
   <div id="result" hidden>
     <div class="result-card">
-      <p id="result-icon">🪳</p>
-      <h2 id="result-title">ぜんめつ…</h2>
-      <p id="result-text">この家のゴキブリは絶えました</p>
-      <button id="result-retry" type="button">もう一度やる</button>
+      <p id="result-icon">🎉</p>
+      <h2 id="result-title">クリア！</h2>
+      <p id="result-time">タイム 00:00</p>
+      <div id="result-rank">
+        <div class="rank-stars" id="rank-stars">★★★★★</div>
+        <div class="rank-name" id="rank-name">伝説のゴキブリ</div>
+      </div>
+      <p id="result-note"></p>
+      <div class="result-buttons">
+        <button id="result-retry" type="button">もう一度</button>
+        <button id="result-home" type="button">ホームへ</button>
+      </div>
     </div>
   </div>
 

@@ -169,6 +169,17 @@ export const CONFIG = {
     { id: 'high',    label: 'キッチンの調理台に登る', dirt: 20 },
   ],
 
+  // クリアタイムでつける称号（速いほど上位）。
+  // クリア秒数が sec 以下なら、その称号になる（上から順に判定）。
+  // 星の数で高低を一目で分かるようにしつつ、名前で味付けする。
+  ranks: [
+    { sec: 90,       stars: 5, name: '伝説のゴキブリ',   emoji: '👑' },
+    { sec: 150,      stars: 4, name: '黄金のゴキブリ',   emoji: '✨' },
+    { sec: 240,      stars: 3, name: '一人前ゴキブリ',   emoji: '💪' },
+    { sec: 360,      stars: 2, name: '見習いゴキブリ',   emoji: '🔰' },
+    { sec: Infinity, stars: 1, name: '下っ端ゴキブリ',   emoji: '🐛' },
+  ],
+
   // 仰向けにひっくり返って消えるまでの秒数。
   death: { flipTime: 1.2 },
 

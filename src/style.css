@@ -33,6 +33,14 @@ html, body {
   pointer-events: none;
 }
 
+/* プレイ中以外はゲーム用HUDを隠す（ホーム／結果画面ではじゃま） */
+body:not(.playing) #hud,
+body:not(.playing) #controls,
+body:not(.playing) #gather-btn,
+body:not(.playing) #stick-zone,
+body:not(.playing) #stick-base,
+body:not(.playing) #stick-knob { display: none !important; }
+
 /* タイトル＆カウンター（左上） */
 #hud {
   top: max(16px, env(safe-area-inset-top));
@@ -204,7 +212,100 @@ html, body {
 #toast.show { opacity: 1; }
 #toast.danger { border-color: #ff3b3b; }
 
-/* --- 決着画面（全滅／達成） --- */
+/* ===== ホーム画面 ===== */
+#home {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(160deg, rgba(255,179,198,0.72), rgba(160,231,255,0.72));
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+#home[hidden] { display: none; }
+.home-inner {
+  width: min(560px, 92vw);
+  padding: 28px 20px 40px;
+  text-align: center;
+}
+.home-title {
+  font-size: clamp(26px, 7vw, 40px);
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: 3px 3px 0 #ff6b6b, 6px 6px 0 rgba(0, 0, 0, 0.15);
+}
+.home-sub {
+  margin: 12px 0 20px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5b3b1a;
+}
+.stage-select {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.stage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+  padding: 14px 10px;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.9);
+  border: 4px solid #fff;
+  border-radius: 18px;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+.stage-card.selected { border-color: #ffd93d; background: #fffdf3; }
+.stage-card.locked { opacity: 0.55; cursor: default; }
+.stage-name { font-size: 17px; font-weight: 700; color: #5b3b1a; }
+.stage-goal { font-size: 12px; color: #7a6350; }
+.stage-best { font-size: 11px; color: #b0895a; }
+#start-btn {
+  padding: 16px 48px;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(180deg, #ff8fa3, #ff6b6b);
+  border: 4px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  animation: start-pulse 1.4s ease-in-out infinite;
+}
+#start-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2); }
+@keyframes start-pulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.05);} }
+.home-panels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+.home-panel {
+  flex: 1 1 220px;
+  padding: 14px 16px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.9);
+  border: 3px solid #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.12);
+}
+.home-panel h3 { font-size: 15px; color: #5b3b1a; margin-bottom: 8px; }
+.home-panel ul { list-style: none; }
+.home-panel li { font-size: 12px; color: #6a5540; padding: 3px 0 3px 16px; position: relative; }
+.home-panel li::before { content: '🪳'; position: absolute; left: 0; font-size: 10px; }
+.home-panel li b { color: #d9534f; }
+#home-stats { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+#home-stats dt { font-size: 12px; color: #7a6350; }
+#home-stats dd { font-size: 15px; font-weight: 700; color: #5b3b1a; text-align: right; }
+
+/* ===== 結果発表画面 ===== */
 #result {
   position: fixed;
   inset: 0;
@@ -212,14 +313,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.5);
   animation: result-in 0.4s ease-out;
 }
 #result[hidden] { display: none; }
-@keyframes result-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+@keyframes result-in { from { opacity: 0; } to { opacity: 1; } }
 .result-card {
   padding: 28px 34px;
   text-align: center;
@@ -227,35 +325,36 @@ html, body {
   border: 5px solid #ffd93d;
   border-radius: 24px;
   box-shadow: 0 10px 0 rgba(0, 0, 0, 0.2);
-  max-width: 86vw;
+  max-width: 90vw;
+  animation: result-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
-#result-icon {
-  font-size: 46px;
-  line-height: 1;
+@keyframes result-pop { from { transform: scale(0.7); } to { transform: scale(1); } }
+#result-icon { font-size: 50px; line-height: 1; }
+.result-card h2 { margin: 6px 0 2px; font-size: 28px; color: #5b3b1a; }
+#result-time { font-size: 16px; font-weight: 700; color: #7a6350; margin-bottom: 10px; }
+#result-rank {
+  margin: 8px auto 6px;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff7d6, #ffe9a8);
+  border-radius: 16px;
 }
-.result-card h2 {
-  margin: 8px 0 4px;
-  font-size: 26px;
-  color: #5b3b1a;
-}
-.result-card p#result-text {
-  font-size: 14px;
-  color: #7a6350;
-}
-#result-retry {
-  margin-top: 16px;
-  padding: 12px 28px;
+.rank-stars { font-size: 26px; color: #ffb000; letter-spacing: 2px; }
+.rank-name { font-size: 22px; font-weight: 700; color: #5b3b1a; margin-top: 2px; }
+#result-note { font-size: 13px; color: #7a6350; margin-top: 8px; min-height: 18px; }
+.result-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+.result-buttons button {
+  padding: 12px 24px;
   font: inherit;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
-  color: #5b3b1a;
-  background: #ffd93d;
   border: 3px solid #fff;
   border-radius: 999px;
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.2);
   cursor: pointer;
 }
-#result-retry:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2); }
+#result-retry { color: #5b3b1a; background: #ffd93d; }
+#result-home { color: #fff; background: #4ecdc4; }
+.result-buttons button:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2); }
 
 /* --- 仮想スティック（スマホのみ表示。main.js が display を切り替える） --- */
 #stick-zone {

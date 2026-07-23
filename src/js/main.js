@@ -1,20 +1,31 @@
-// エントリーポイント：状態・入力・描画を束ねてゲームループを回す。
+// エントリーポイント：ホーム → プレイ → 結果発表 → ホーム の画面遷移を束ね、
+// プレイ中だけゲームループを回す。
 //
-// ここが「ゲーム本体」。描画は Renderer 型としてしか触らないので、
-// ThreeRenderer を BabylonRenderer に差し替えるのはこの1行だけで済む。
+// 描画は Renderer 型としてしか触らないので、ThreeRenderer を
+// BabylonRenderer に差し替えるのは new する1行だけで済む。
 
 import { GameState } from './game/state.js';
+import { CONFIG } from './game/config.js';
 import { InputManager, isTouchDevice } from './game/input.js';
 import { ThreeRenderer } from './render/ThreeRenderer.js';
 import { AudioManager } from './audio.js';
 
 const container = document.getElementById('game');
 
-const state = new GameState();
-
+// --- 永続化される入力・描画・音（ゲームをやり直しても使い回す）---
 const input = new InputManager();
-const renderer = new ThreeRenderer(); // ← 将来ここを差し替えるだけで乗り換え可能
+const renderer = new ThreeRenderer();
+const audio = new AudioManager();
+
+// ゲーム状態はプレイのたびに作り直す
+let state = new GameState();
 renderer.init(container, state);
+
+// 画面フェーズ：'home' | 'playing' | 'result'
+let phase = 'home';
+let startTime = 0;
+let clearSec = 0;
+let resultShown = false;
 
 // スマホなら仮想スティックを有効化（PCでは左半分がクリックを奪わないよう出さない）
 if (isTouchDevice()) {
@@ -26,24 +37,82 @@ if (isTouchDevice()) {
   document.getElementById('controls').innerHTML =
     '<span>左半分でスティック／右半分で視点／2本指でズーム</span>';
 }
+
 // 「つれていく／解散」ボタン（PCはスペースキーでも可）
 const gatherBtn = document.getElementById('gather-btn');
-input.attachActionButton(gatherBtn, () => state.toggleRecruit());
+input.attachActionButton(gatherBtn, () => { if (phase === 'playing') state.toggleRecruit(); });
 
-// --- 音（効果音＋BGM）---
-const audio = new AudioManager();
-// ブラウザの自動再生制限：最初のユーザー操作で音を有効化する
-const unlockAudio = () => audio.unlock();
+// --- 音（最初のユーザー操作で解禁）---
 for (const ev of ['pointerdown', 'touchstart', 'keydown']) {
-  window.addEventListener(ev, unlockAudio, { once: true });
+  window.addEventListener(ev, () => audio.unlock(), { once: true });
 }
-// ミュートボタン
 const muteBtn = document.getElementById('mute-btn');
 const paintMute = () => { muteBtn.textContent = audio.muted ? '🔇' : '🔊'; };
 paintMute();
 muteBtn.addEventListener('click', () => { audio.unlock(); audio.toggleMute(); paintMute(); });
 
-// HUD 更新（匹数と増殖ゲージ）
+// ===== 成績（localStorage に保存）=====
+function loadRecords() {
+  try { return JSON.parse(localStorage.getItem('goki-records')) || {}; } catch { return {}; }
+}
+function saveRecords(r) { try { localStorage.setItem('goki-records', JSON.stringify(r)); } catch {} }
+
+function fmtTime(sec) {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// クリアタイム → 称号（速いほど上位）
+function rankFor(sec) {
+  for (const r of CONFIG.ranks) if (sec <= r.sec) return r;
+  return CONFIG.ranks[CONFIG.ranks.length - 1];
+}
+function stars(n) { return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n); }
+
+// ===== ホーム画面 =====
+const homeEl = document.getElementById('home');
+function refreshHomeStats() {
+  const rec = loadRecords();
+  document.getElementById('stat-clears').textContent = rec.clears || 0;
+  document.getElementById('stat-best').textContent = fmtTime(rec.bestSec);
+  const rankTxt = rec.bestSec != null ? `${rankFor(rec.bestSec).name}` : '—';
+  document.getElementById('stat-rank').textContent = rankTxt;
+  document.getElementById('home-best').textContent =
+    rec.bestSec != null ? `ベスト：${fmtTime(rec.bestSec)}` : 'ベスト：—';
+}
+function showHome() {
+  phase = 'home';
+  document.body.classList.remove('playing');
+  homeEl.hidden = false;
+  document.getElementById('result').hidden = true;
+  refreshHomeStats();
+  audio.startBgm();
+}
+
+// ===== ゲーム開始（新しいステージを立て直す）=====
+function startGame() {
+  state = new GameState();
+  renderer.reset(state);
+  window.__goki.state = state; // デバッグフックも差し替える
+  resultShown = false;
+
+  phase = 'playing';
+  startTime = performance.now();
+  document.body.classList.add('playing');
+  homeEl.hidden = true;
+  document.getElementById('result').hidden = true;
+
+  audio.unlock();
+  audio.startBgm();
+  updateHud();
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('result-retry').addEventListener('click', startGame);
+document.getElementById('result-home').addEventListener('click', showHome);
+
+// ===== HUD =====
 const countEl = document.getElementById('count');
 const gaugeEl = document.getElementById('gauge-fill');
 const dirtEl = document.getElementById('dirt-fill');
@@ -60,12 +129,10 @@ function updateHud() {
   const recruitable = state.recruitableCount();
   const following = state.recruitedCount;
   if (recruitable > 0) {
-    gatherBtn.textContent = `つれていく
-(${recruitable})`;
+    gatherBtn.textContent = `つれていく\n(${recruitable})`;
     gatherBtn.style.display = 'flex';
   } else if (following > 0) {
-    gatherBtn.textContent = `解散
-(${following})`;
+    gatherBtn.textContent = `解散\n(${following})`;
     gatherBtn.style.display = 'flex';
   } else {
     gatherBtn.style.display = 'none';
@@ -81,9 +148,8 @@ function updateHud() {
     missionEl.classList.remove('done');
   }
 }
-updateHud();
 
-// 危険の出現・ミッション達成を数秒だけ知らせる
+// ===== トースト＆効果音 =====
 const toastEl = document.getElementById('toast');
 const HAZARD_NAMES = {
   hoihoi: '🪤 ゴキブリホイホイが仕掛けられた！',
@@ -100,7 +166,6 @@ function showToast(text, danger) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
 }
-// state のイベント → 効果音
 const SFX_FOR = {
   pickup: 'pickup', spawn: 'spawn', hatch: 'hatch', death: 'death',
   mission: 'mission', recruit: 'recruit', nested: 'nested',
@@ -120,82 +185,89 @@ function handleNotices() {
   }
 }
 
-// --- 画面サイズ追従 ---
-// スマホのブラウザはURLバーが出入りするたびに見える高さが変わる。
-// resize だけでは取りこぼすので visualViewport も監視し、
-// さらに回転直後は値が確定していないことがあるので少し遅らせて測り直す。
-function refreshSize() {
-  renderer.resize();
-}
-window.addEventListener('resize', refreshSize);
-window.addEventListener('orientationchange', () => {
-  refreshSize();
-  setTimeout(refreshSize, 300);
-});
-if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', refreshSize);
-}
-
-// --- 決着表示（全滅／100匹達成） ---
-const resultEl = document.getElementById('result');
-document.getElementById('result-retry').addEventListener('click', () => location.reload());
-let resultShown = false;
-
-function checkResult() {
-  const won = state.count >= state.target;
-  // 決着していなければ引っ込める（復帰した場合に出しっぱなしにしない）
-  if (!state.gameOver && !won) {
-    if (resultShown) { resultEl.hidden = true; resultShown = false; }
-    return;
-  }
+// ===== 結果発表 =====
+function showResult(won) {
   if (resultShown) return;
-
   resultShown = true;
+  phase = 'result';
+  document.body.classList.remove('playing');
   audio.sfx(won ? 'win' : 'lose');
   audio.stopBgm();
-  document.getElementById('result-icon').textContent = won ? '🎉' : '🪳';
-  document.getElementById('result-title').textContent = won ? '100匹 達成！' : 'ぜんめつ…';
-  document.getElementById('result-text').textContent = won
-    ? 'この家はもうあなたのものですヌルフフ'
-    : 'この家のゴキブリは絶えました';
-  resultEl.hidden = false;
+
+  const rankBox = document.getElementById('result-rank');
+  const note = document.getElementById('result-note');
+
+  if (won) {
+    clearSec = (performance.now() - startTime) / 1000;
+    const rank = rankFor(clearSec);
+    document.getElementById('result-icon').textContent = rank.emoji || '🎉';
+    document.getElementById('result-title').textContent = 'クリア！';
+    document.getElementById('result-time').textContent = `タイム ${fmtTime(clearSec)}`;
+    document.getElementById('rank-stars').textContent = stars(rank.stars);
+    document.getElementById('rank-name').textContent = rank.name;
+    rankBox.hidden = false;
+
+    // 成績を更新（ベスト更新なら知らせる）
+    const rec = loadRecords();
+    rec.clears = (rec.clears || 0) + 1;
+    let best = false;
+    if (rec.bestSec == null || clearSec < rec.bestSec) { rec.bestSec = clearSec; best = true; }
+    saveRecords(rec);
+    note.textContent = best ? '🏆 自己ベスト更新！' : `ベスト ${fmtTime(rec.bestSec)}`;
+  } else {
+    document.getElementById('result-icon').textContent = '🪳';
+    document.getElementById('result-title').textContent = 'ぜんめつ…';
+    document.getElementById('result-time').textContent = 'この家のゴキブリは絶えた';
+    rankBox.hidden = true;
+    note.textContent = 'ホームからもう一度挑戦しよう';
+  }
+  document.getElementById('result').hidden = false;
 }
 
-// デバッグ用フック（描画検証で使用。ゲーム挙動には影響しない）
-window.__goki = { state, renderer, input };
+// ===== 画面サイズ追従 =====
+function refreshSize() { renderer.resize(); }
+window.addEventListener('resize', refreshSize);
+window.addEventListener('orientationchange', () => { refreshSize(); setTimeout(refreshSize, 300); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', refreshSize);
 
-// 経過時間ベースのゲームループ（フレームレート非依存）
+// デバッグ用フック（描画検証で使用。ゲーム挙動には影響しない）
+window.__goki = { state, renderer, input, audio, startGame, showHome };
+
+// 初期表示はホーム
+showHome();
+
+// ===== ゲームループ（フレームレート非依存）=====
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); // 1フレーム最大50msに制限
+  const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  // 1) 入力 → カメラ基準の world ベクトルへ変換 → ゲームロジック更新
-  if (!window.__pause) {
-    const iv = input.getMoveVector();              // 画面基準（x=右, z=上で-1）
+  if (phase === 'playing' && !window.__pause) {
+    const iv = input.getMoveVector();
     const yaw = renderer.getCameraYaw();
-    const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw); // 画面奥（カメラの向き）
-    const rgtX = Math.cos(yaw),  rgtZ = -Math.sin(yaw); // 画面右
+    const fwdX = -Math.sin(yaw), fwdZ = -Math.cos(yaw);
+    const rgtX = Math.cos(yaw), rgtZ = -Math.sin(yaw);
     const f = -iv.z, r = iv.x;
-
-    // 地上は world ベクトルで動くが、よじ登り中は「画面の前後＝昇降」を使う。
-    // 面の向きから昇降を決めると、回り込むたびに操作の意味が変わってしまうため。
     const move = {
-      x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r, // world 基準（地上用）
-      fwd: f, right: r,                               // 画面基準（登り用）
-      rightX: rgtX, rightZ: rgtZ,                     // カメラ右ベクトル（左右の向き合わせ）
+      x: fwdX * f + rgtX * r, z: fwdZ * f + rgtZ * r,
+      fwd: f, right: r,
+      rightX: rgtX, rightZ: rgtZ,
     };
     state.update(move, dt);
     renderer.sync(state, dt);
     handleNotices();
-    state.events.length = 0; // 描画へ渡し終えた出来事は毎フレーム捨てる
+    state.events.length = 0;
     updateHud();
-    checkResult();
+
+    if (state.cleared) showResult(true);
+    else if (state.gameOver) showResult(false);
+  } else if (phase === 'home') {
+    // ホームでは家をゆっくり見回す（生きた背景）
+    renderer.orbit.yaw += dt * 0.15;
+    renderer._applyCamera();
   }
 
-  // 2) 描画
   renderer.render();
-
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

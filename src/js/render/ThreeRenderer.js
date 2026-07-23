@@ -832,6 +832,14 @@ export class ThreeRenderer extends Renderer {
     this.followTarget = new THREE.Vector3(0, CONFIG.camera.lookAtHeight, 0);
     this._setupCameraControls();
 
+    this._populate(state);
+    this._applyCamera(); // 初期配置
+  }
+
+  // シーンの中身（家・家具・敵・ゴキ）を state から組み立てる。
+  // init と reset の両方から呼ぶことで、リトライ時に WebGL コンテキストを
+  // 作り直さずにステージだけ立て直せる（コンテキストのリークを防ぐ）。
+  _populate(state) {
     this._buildLights();
     this._buildHouse(state);
     this._buildFurniture(state);
@@ -839,17 +847,37 @@ export class ThreeRenderer extends Renderer {
     this._buildProps(state);
     this._buildHazards(state);
 
-    // ゴキブリのメッシュ（id -> Group）
     this.roachMeshes = new Map();
     this._syncRoachMeshes(state);
 
-    // 餌のメッシュ（id -> Group）と、一過性の演出リスト
     this.foodMeshes = new Map();
-    this.foodKinds = new Map(); // 再湧きで種類が変わったら作り直すため
+    this.foodKinds = new Map();
     this.effects = [];
     this.elapsed = 0;
 
-    this._applyCamera(); // 初期配置
+    // カメラを初期状態へ戻す
+    this.orbit.yaw = CONFIG.camera.yaw;
+    this.orbit.pitch = CONFIG.camera.pitch;
+    this.orbit.distance = CONFIG.camera.distance;
+    this.followTarget.set(0, CONFIG.camera.lookAtHeight, 0);
+  }
+
+  // 新しい state でシーンを立て直す（リトライ／別ステージ用）。
+  reset(state) {
+    // シーンの全オブジェクトを破棄してから作り直す
+    for (let i = this.scene.children.length - 1; i >= 0; i--) {
+      const obj = this.scene.children[i];
+      this.scene.remove(obj);
+      obj.traverse?.((m) => {
+        if (m.geometry) m.geometry.dispose?.();
+        if (m.material) {
+          const mats = Array.isArray(m.material) ? m.material : [m.material];
+          for (const mm of mats) mm.dispose?.();
+        }
+      });
+    }
+    this._populate(state);
+    this._applyCamera();
   }
 
   // マウスドラッグ／1本指スワイプで回転、ホイール／2本指ピンチでズーム。

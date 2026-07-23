@@ -308,6 +308,10 @@ export class GameState {
     this.missions = CONFIG.missions.map((m) => ({ ...m, progress: 0, done: false }));
     this.missionIndex = 0;
     this.foodsEaten = 0;
+
+    // 100匹に一度でも到達したら true のまま（勝利は覆さない）。
+    // これが無いと、到達直後に1匹死んで count が99へ戻り勝利が取り消される。
+    this.cleared = false;
   }
 
   // 今あるべき床の餌の数（汚いほど増える）
@@ -478,6 +482,9 @@ export class GameState {
     if (this._hazardActive('owner')) this._updateOwner(dt);
     this._updateMissions(dt);
     this._updateDying(dt);
+
+    // 一度でも目標に到達したら勝利を確定させる（以後は覆さない）
+    if (this.count >= this.target) this.cleared = true;
   }
 
   // --- 死亡まわり ---

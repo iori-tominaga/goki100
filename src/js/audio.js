@@ -105,36 +105,60 @@ export class AudioManager {
     }
   }
 
-  // 陽気なループBGM。塊魂リスペクトの軽快さを、ベース＋16分メロディで出す。
-  // 先読みスケジューラで setTimeout の揺れを吸収する。
+  // 懐かしい夏休み調のループBGM。
+  // フリー素材「少年達の夏休み的なBGM」の“雰囲気”を参考にした自作曲で、
+  // 楽曲そのものは使っていない（著作権を尊重し、単一ファイルのまま鳴らす）。
+  // 王道進行（F→G→Em→Am）＋やわらかい三角波で、明るくも少し切なく。
   startBgm() {
     if (!this.ctx || this.bgmOn) return;
     this.bgmOn = true;
 
-    const bass = [130.81, 130.81, 174.61, 196.00];               // C C F G
-    const mel = [
-      523.25, 659.25, 783.99, 659.25, 587.33, 698.46, 880.00, 698.46,
-      698.46, 880.00, 1046.50, 880.00, 783.99, 659.25, 587.33, 523.25,
+    // 4小節（各8個の8分音符 = 32ステップ）。0 は休符。
+    const bass = [87.31, 98.00, 82.41, 110.00]; // F2 G2 E2 A2（小節ごと）
+    const pad = [                                // 各小節の和音（低め・やわらかく）
+      [174.61, 220.00, 261.63], // F: F3 A3 C4
+      [196.00, 246.94, 293.66], // G: G3 B3 D4
+      [164.81, 196.00, 246.94], // Em:E3 G3 B3
+      [220.00, 261.63, 329.63], // Am:A3 C4 E4
     ];
-    const bpm = 138, beat = 60 / bpm, sixteenth = beat / 4;
-    const AHEAD = 0.2;
+    const lead = [
+      523.25, 0, 587.33, 698.46, 0, 659.25, 587.33, 523.25, // F 小節
+      587.33, 0, 659.25, 783.99, 0, 587.33, 493.88, 0,      // G 小節
+      659.25, 587.33, 0, 493.88, 0, 440.00, 392.00, 0,      // Em 小節
+      440.00, 0, 523.25, 659.25, 0, 587.33, 523.25, 493.88, // Am 小節
+    ];
 
+    const bpm = 100, beat = 60 / bpm, eighth = beat / 2;
+    const AHEAD = 0.25;
     this._step = 0;
-    this._nextNoteTime = this.ctx.currentTime + 0.15;
+    this._nextNoteTime = this.ctx.currentTime + 0.2;
 
     const loop = () => {
       if (!this.bgmOn) return;
       while (this._nextNoteTime < this.ctx.currentTime + AHEAD) {
-        const s = this._step % 16;
-        const mf = mel[s];
-        if (mf) this._bgmNote(mf, sixteenth * 0.9, 'square', 0.05, this._nextNoteTime);
-        if (s % 4 === 0) {
-          this._bgmNote(bass[((this._step / 4) | 0) % 4], beat * 0.95, 'triangle', 0.09, this._nextNoteTime);
+        const s = this._step % 32;   // 32個の8分で1ループ
+        const bar = (s / 8) | 0;
+        const t = this._nextNoteTime;
+
+        // リード（8分）：あたたかい三角波
+        const mf = lead[s];
+        if (mf) this._bgmNote(mf, eighth * 1.6, 'triangle', 0.06, t);
+
+        // 小節頭：ベースと和音パッド
+        if (s % 8 === 0) {
+          this._bgmNote(bass[bar], beat * 3.6, 'triangle', 0.08, t);
+          for (const pf of pad[bar]) this._bgmNote(pf, beat * 3.6, 'sine', 0.035, t);
         }
+        // 各拍でやさしいアルペジオ（和音の音を1つ）
+        if (s % 2 === 0) {
+          const pf = pad[bar][(s / 2) % pad[bar].length];
+          this._bgmNote(pf * 2, eighth * 1.2, 'sine', 0.025, t);
+        }
+
         this._step++;
-        this._nextNoteTime += sixteenth;
+        this._nextNoteTime += eighth;
       }
-      this._bgmTimer = setTimeout(loop, 45);
+      this._bgmTimer = setTimeout(loop, 50);
     };
     loop();
   }
