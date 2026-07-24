@@ -776,6 +776,7 @@ export class GameState {
       if (Math.hypot(r.x - sp.x, r.z - sp.z) >= c.killRadius + CONFIG.roach.radius) continue;
       this._kill(r, 'spider');
       sp.feed = c.feedTime;
+      this.events.push({ type: 'spiderBite', x: sp.x, y: sp.y, z: sp.z });
       break;
     }
   }

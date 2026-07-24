@@ -19,14 +19,18 @@ export class AudioManager {
 
   // 最初のユーザー操作で呼ぶ。以後は何度呼んでも安全。
   unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    this.ctx = new AC();
-    this.master = this.ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.5;
-    this.master.connect(this.ctx.destination);
-    this.startBgm();
+    if (!this.ctx) {
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.5;
+      this.master.connect(this.ctx.destination);
+      this.startBgm();
+    }
+    // 作りたての context は iOS/Safari では停止状態なので、
+    // ユーザー操作の中で必ず resume する（これが無いとBGMが鳴らない）。
+    if (this.ctx.state === 'suspended') this.ctx.resume();
   }
 
   setMuted(m) {
@@ -65,6 +69,26 @@ export class AudioManager {
     osc.start(t); osc.stop(t + dur + 0.02);
   }
 
+  // 複数の周波数を滑らかに繋ぐ「うねり」音（鳴き声・悲鳴向け）。
+  _glide(freqs, dur, type = 'sawtooth', vol = 0.2) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    const seg = dur / (freqs.length - 1);
+    osc.frequency.setValueAtTime(freqs[0], t);
+    for (let i = 1; i < freqs.length; i++) {
+      osc.frequency.linearRampToValueAtTime(freqs[i], t + seg * i);
+    }
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.03);
+    g.gain.setValueAtTime(vol, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(this.master);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  }
+
   _noise(dur, vol = 0.2) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
@@ -84,7 +108,7 @@ export class AudioManager {
   sfx(name) {
     if (!this.ctx || this.muted) return;
     const now = this.ctx.currentTime;
-    const min = { pickup: 0.05, spawn: 0.05, death: 0.05, swipe: 0.08, spray: 0.2 }[name] || 0;
+    const min = { pickup: 0.05, spawn: 0.05, death: 0.05, swipe: 0.08, spray: 0.2, meow: 0.25, chitter: 0.3, scream: 0.5 }[name] || 0;
     if (min && this._last[name] && now - this._last[name] < min) return;
     this._last[name] = now;
 
@@ -101,6 +125,10 @@ export class AudioManager {
       case 'spray':  this._noise(0.4, 0.14); break;
       case 'win':    [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => this._blip(f, 0.16, 'triangle', 0.3, i * 0.1)); break;
       case 'lose':   this._slide(440, 110, 0.7, 'sawtooth', 0.26); break;
+      // 生き物・人の声
+      case 'meow':   this._glide([620, 1040, 900, 560], 0.4, 'sawtooth', 0.16); break;      // 子猫の鳴き声
+      case 'chitter':for (let i = 0; i < 7; i++) this._blip(1700 + Math.random() * 700, 0.028, 'square', 0.07, i * 0.038); break; // 蜘蛛のカチカチ
+      case 'scream': this._glide([780, 1180, 980, 1240, 760], 0.6, 'sawtooth', 0.2); break; // 家主の悲鳴
       default: break;
     }
   }

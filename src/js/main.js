@@ -169,13 +169,22 @@ function showToast(text, danger) {
 const SFX_FOR = {
   pickup: 'pickup', spawn: 'spawn', hatch: 'hatch', death: 'death',
   mission: 'mission', recruit: 'recruit', nested: 'nested',
-  hazardAppear: 'danger', oothecaAppear: 'hatch',
-  swipe: 'swipe', ownerSlam: 'swipe', ownerSpray: 'spray', spray: 'spray',
+  oothecaAppear: 'hatch', spray: 'spray',
+  swipe: 'meow',          // 猫パンチ＝子猫の鳴き声
+  ownerSlam: 'scream', ownerSpray: 'scream', // 家主の攻撃＝悲鳴
+  ownerNotice: 'scream',  // ゴキの群れを見つけて悲鳴
+  spiderBite: 'chitter',  // 蜘蛛が捕らえる＝カチカチ
 };
+// 危険の初登場時に鳴らす生き物の声
+const APPEAR_SFX = { cat: 'meow', spider: 'chitter', owner: 'scream' };
 function handleNotices() {
   for (const ev of state.events) {
     const sfx = SFX_FOR[ev.type];
     if (sfx) audio.sfx(sfx);
+    if (ev.type === 'hazardAppear') {
+      audio.sfx('danger');
+      if (APPEAR_SFX[ev.name]) audio.sfx(APPEAR_SFX[ev.name]);
+    }
     if (ev.type === 'hazardAppear' && HAZARD_NAMES[ev.name]) showToast(HAZARD_NAMES[ev.name], true);
     else if (ev.type === 'mission') showToast(`🎯 ${ev.label} 達成！ 家が汚れた（+${ev.dirt}） 餌が${ev.foods}個に`, false);
     else if (ev.type === 'oothecaAppear') showToast('🥚 卵鞘が出現した！ 急いで取りに行こう', false);
